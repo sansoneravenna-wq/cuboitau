@@ -3,6 +3,6 @@
 window.CUBO_CONFIG = {
   supabaseUrl: "https://lltxogoaqamcpvlanlor.supabase.co",
   supabaseAnonKey: "sb_publishable_o1Zzbt-bTDlJ4SjPcheFfQ_xVz8ifFx",
-  // Tamaño de la etiqueta del gafete, en milímetros (ancho × alto)
-  label: { w: 90, h: 55 }
+  // Tamaño de la etiqueta del gafete, en milímetros (ancho × alto). Brother DK-11202 = 62 × 100 mm
+  label: { w: 100, h: 62 }
 };

@@ -10,12 +10,16 @@ var BASE = [
   { id: "email", label: "Email", type: "email", required: true },
   { id: "empresa", label: "Empresa", type: "text", required: true }
 ];
-var TYPES = { text: "Texto corto", textarea: "Texto largo", select: "Opción única", checkbox: "Casilla" };
+var TYPES = { text: "Texto corto", textarea: "Texto largo", select: "Opción única", checkbox: "Casilla", tel: "Teléfono" };
 var MAILDEF = {
   pendiente: { subj: "Recibimos tu solicitud para {evento}", body: "Tu inscripción quedó pendiente de aprobación. El equipo de Cubo Itaú la va a revisar y te avisamos por este medio." },
   aprobada: { subj: "¡Inscripción aprobada! {evento}", body: "Tu lugar está confirmado. Presentá el código QR de este correo en el ingreso." },
-  rechazada: { subj: "Tu solicitud para {evento}", body: "Esta vez no pudimos confirmar tu lugar. Gracias por tu interés; te esperamos en los próximos eventos." }
+  rechazada: { subj: "Tu solicitud para {evento}", body: "Esta vez no pudimos confirmar tu lugar. Gracias por tu interés; te esperamos en los próximos eventos." },
+  recordatorio: { subj: "Recordatorio: {evento}", body: "Te esperamos el {fecha}, de {hora}, en {lugar}. Acordate de tener a mano el código QR de tu entrada." },
+  certificado: { subj: "Tu certificado de asistencia a {evento}", body: "Gracias por participar. Ya podés descargar tu certificado de asistencia." },
+  whatsapp: { subj: "", body: "Hola {nombre}, te recordamos que {evento} es el {fecha}, de {hora}, en {lugar}. Tu entrada con el QR: {entrada}" }
 };
+var CERTDEF = "Por su participación en {evento}, realizado el {fecha} en {lugar}.";
 var MAILNAME = { pendiente: "Al inscribirse", aprobada: "Al aprobar", rechazada: "Al rechazar" };
 var STATUS = { pendiente: "Pendiente", aprobada: "Aprobada", rechazada: "Rechazada" };
 
@@ -55,7 +59,9 @@ function makeApi(sb) {
     kioskEvents: function () { return un(sb.rpc("kiosk_events")); },
     kioskLookup: function (ev, code) { return un(sb.rpc("kiosk_lookup", { p_event: ev, p_code: code })); },
     kioskSearch: function (ev, q) { return un(sb.rpc("kiosk_search", { p_event: ev, p_q: q })); },
-    kioskPrint: function (ev, id) { return un(sb.rpc("kiosk_print", { p_event: ev, p_reg: id })); }
+    kioskPrint: function (ev, id) { return un(sb.rpc("kiosk_print", { p_event: ev, p_reg: id })); },
+    sendBulk: function (ev, kind, testTo) { return un(sb.rpc("send_bulk", { p_event: ev, p_kind: kind, p_test_to: testTo || null })); },
+    certificate: function (c) { return un(sb.rpc("certificate", { p_code: c })); }
   };
 }
 
@@ -82,6 +88,7 @@ function route() {
   if (p[0] === "entrada" && p[1]) return { v: "entrada", code: decodeURIComponent(p[1]).toUpperCase() };
   if (p[0] === "admin") return { v: "admin" };
   if (p[0] === "totem") return { v: "totem" };
+  if (p[0] === "certificado" && p[1]) return { v: "certificado", code: decodeURIComponent(p[1]).toUpperCase() };
   return { v: "agenda" };
 }
 function tpl(e, kind) { var m = (e.mails || {})[kind] || {}; return { subj: m.subj || MAILDEF[kind].subj, body: m.body || MAILDEF[kind].body }; }
@@ -126,13 +133,18 @@ function formHtml(e, pre, dis) {
     if (f.type === "checkbox") return '<div class="field check"><input type="checkbox" id="' + id + '"' + a + '><label for="' + id + '">' + esc(f.label) + req + "</label></div>";
     if (f.type === "textarea") c = '<textarea id="' + id + '" rows="3" maxlength="2000"' + a + "></textarea>";
     else if (f.type === "select") c = '<select id="' + id + '"' + a + '><option value="">Elegí una opción</option>' + (f.options || []).map(function (o) { return "<option>" + esc(o) + "</option>"; }).join("") + "</select>";
-    else c = '<input type="' + (f.type === "email" ? "email" : "text") + '" id="' + id + '" maxlength="120"' + (f.id === "email" ? ' autocomplete="email"' : "") + a + ">";
+    else c = '<input type="' + (f.type === "email" ? "email" : f.type === "tel" ? "tel" : "text") + '" id="' + id + '" maxlength="120"' + (f.id === "email" ? ' autocomplete="email"' : f.type === "tel" ? ' autocomplete="tel" inputmode="tel"' : "") + a + ">";
     return '<div class="field"><label for="' + id + '">' + esc(f.label) + req + "</label>" + c + "</div>";
-  }).join("");
+  }).join("") + '<div class="field check"><input type="checkbox" id="' + pre + '-consent"' + a + '><label for="' + pre + '-consent">Acepto que Cubo Itaú use mis datos para gestionar mi participación en este evento. <span class="note">(obligatorio)</span></label></div>';
+}
+function labelInner(nombre, apellido, empresa, title) {
+  var L = CFG.label || { w: 100, h: 62 }, logo = document.querySelector(".logo");
+  return '<div class="label" style="aspect-ratio:' + L.w + "/" + L.h + '"><div class="lt">' + (logo ? logo.outerHTML : "<b>CUBO ITAÚ</b>") + "<span>Acreditación</span></div>" +
+    '<div class="n">' + esc(nombre) + "<br>" + esc(apellido) + '</div><div class="c">' + esc(empresa) + '</div><div class="e">' + esc(title) + "</div></div>";
 }
 function labelHtml(r) {
   var e = evById(r.event_id) || { title: "" };
-  return '<div class="label"><div class="n">' + esc(r.data.nombre) + "<br>" + esc(r.data.apellido) + '</div><div class="c">' + esc(r.data.empresa) + '</div><div class="e">' + esc(e.title) + " · Cubo Itaú</div></div>";
+  return labelInner(r.data.nombre, r.data.apellido, r.data.empresa, e.title);
 }
 function asist(r) {
   if (r.status !== "aprobada") return '<span class="pill na">—</span>';
@@ -174,6 +186,10 @@ function onRoute() {
   UI.formOpen = false; UI.err = ""; UI.sent = false; UI.scan = null;
   if (r.v !== "admin" || UI.tab !== "check") camStop();
   if (r.v === "totem") { camStop(); return kEnter(); }
+  if (r.v === "certificado") {
+    S.cert = undefined; render();
+    return api.certificate(r.code).then(function (c) { S.cert = c || null; render(); }).catch(function () { S.cert = null; render(); });
+  }
   if (r.v === "entrada") {
     S.ticket = undefined; render();
     api.ticket(r.code).then(function (t) { S.ticket = t || null; render(); }).catch(function () { S.ticket = null; render(); });
@@ -189,7 +205,7 @@ function vAgenda() {
   var rows = list.map(function (e) {
     var a = S.counts[e.id] || 0;
     return '<a class="ag" href="#/e/' + encodeURIComponent(e.slug) + '" style="text-decoration:none;color:inherit"><div class="day"><b>' + fmt(e.starts_at, { day: "numeric" }) + "</b><span>" + fmt(e.starts_at, { month: "short" }) + "</span></div>" + cover(e, true) +
-      "<div><h3>" + esc(e.title) + '</h3><p class="note">' + esc(fmt(e.starts_at, { weekday: "long" })) + " · " + esc(hours(e)) + " · " + esc(e.place) + '</p></div><div class="cnt note">' + a + (a === 1 ? " confirmado" : " confirmados") + "</div></a>";
+      "<div><h3>" + esc(e.title) + '</h3><p class="note">' + esc(fmt(e.starts_at, { weekday: "long" })) + " · " + esc(hours(e)) + " · " + esc(e.place) + "</p></div></a>";
   }).join("");
   return '<div class="stack"><span class="lbl">Agenda</span><h1>Próximos eventos</h1></div><div class="agenda">' +
     (rows || '<p class="note" style="padding:24px 0">Todavía no hay eventos publicados. Volvé pronto.</p>') + "</div>";
@@ -211,7 +227,6 @@ function vEvento(slug) {
   }
   return '<div class="ev"><aside class="stack">' + cover(e) +
     '<div class="stack" style="gap:4px"><span class="lbl">Organiza</span><b>Cubo Itaú</b></div>' +
-    '<div class="stack" style="gap:4px"><span class="lbl">Asistentes</span><span>' + going + (going === 1 ? " confirmado" : " confirmados") + (e.capacity ? " de " + e.capacity + " lugares" : "") + "</span></div>" +
     (e.published ? "" : '<span class="pill pendiente">Borrador: solo lo ven los administradores</span>') + "</aside>" +
     '<section class="stack" style="gap:20px"><h1>' + esc(e.title) + "</h1>" +
     '<div class="stack"><div class="fact"><div class="ic"><div><small>' + fmt(e.starts_at, { month: "short" }) + "</small>" + fmt(e.starts_at, { day: "numeric" }) + "</div></div><div><b>" + esc(cap1(when(e))) + '</b><p class="note">' + esc(hours(e)) + "</p></div></div>" +
@@ -254,10 +269,10 @@ function vAdmin() {
   var rs = S.regs, n = function (f) { return rs.filter(f).length; };
   return top +
     '<div class="stats"><div><b>' + rs.length + "</b><span>Inscriptos</span></div><div><b>" + n(function (r) { return r.status === "pendiente"; }) + "</b><span>Pendientes</span></div><div><b>" + n(function (r) { return r.status === "aprobada"; }) + "</b><span>Aprobados</span></div><div><b>" + n(function (r) { return r.checkin_at; }) + "</b><span>Asistieron</span></div></div>" +
-    '<div class="tabs">' + [["insc", "Inscripciones"], ["datos", "Datos del evento"], ["form", "Formulario"], ["mails", "Correos"], ["check", "Check-in"]].map(function (t) {
+    '<div class="tabs">' + [["insc", "Inscripciones"], ["datos", "Datos del evento"], ["form", "Formulario"], ["mails", "Correos"], ["envios", "Recordatorios y certificados"], ["check", "Check-in"]].map(function (t) {
       return '<button data-act="tab" data-id="' + t[0] + '" aria-current="' + (UI.tab === t[0]) + '">' + t[1] + "</button>";
     }).join("") + "</div>" +
-    (UI.tab === "insc" ? tInsc(e, rs) : UI.tab === "datos" ? tDatos(e) : UI.tab === "form" ? tForm(e) : UI.tab === "mails" ? tMails(e, rs) : tCheck(e, rs));
+    (UI.tab === "insc" ? tInsc(e, rs) : UI.tab === "datos" ? tDatos(e) : UI.tab === "form" ? tForm(e) : UI.tab === "mails" ? tMails(e, rs) : UI.tab === "envios" ? tEnvios(e, rs) : tCheck(e, rs));
 }
 function tInsc(e, rs) {
   var list = rs.filter(function (r) { return UI.filter === "todas" || r.status === UI.filter; });
@@ -355,7 +370,7 @@ function render() {
     (S.session ? '<button data-act="logout">Salir</button>' : "");
   if (!S.ready) return;
   document.body.classList.toggle("kiosk", r.v === "totem");
-  $("app").innerHTML = r.v === "totem" ? vTotem() : r.v === "evento" ? vEvento(r.slug) : r.v === "entrada" ? vEntrada(r.code) : r.v === "admin" ? vAdmin() : vAgenda();
+  $("app").innerHTML = r.v === "certificado" ? vCertificado() : r.v === "totem" ? vTotem() : r.v === "evento" ? vEvento(r.slug) : r.v === "entrada" ? vEntrada(r.code) : r.v === "admin" ? vAdmin() : vAgenda();
   document.title = r.v === "evento" && S.events.find(function (x) { return x.slug === r.slug; }) ? S.events.find(function (x) { return x.slug === r.slug; }).title + " · Cubo Itaú" : "Cubo Itaú Eventos";
   camAttach();
 }
@@ -393,10 +408,7 @@ function doScan(raw) {
   api.validate(UI.cur, code).then(function (res) { UI.scan = res; render(); }).catch(function (e) { UI.scan = { kind: "bad", msg: e.message }; render(); });
 }
 function printLabel(r) {
-  var L = CFG.label || { w: 90, h: 55 }, st = $("pgsize") || document.head.appendChild(Object.assign(document.createElement("style"), { id: "pgsize" }));
-  st.textContent = "@page{size:" + L.w + "mm " + L.h + "mm;margin:0}";
-  $("printarea").innerHTML = labelHtml(r);
-  setTimeout(function () { window.print(); }, 80);
+  printHtml(labelHtml(r), "label");
 }
 
 /* ───────── acciones ───────── */
@@ -426,7 +438,7 @@ function exportXls(scope) {
   var p = scope === "all" ? api.regs(null) : Promise.resolve(S.regs);
   p.then(function (regs) {
     var evs = scope === "all" ? S.events : [cur()], wb = XLSX.utils.book_new();
-    [["Asistieron", function (r) { return !!r.checkin_at; }], ["No asistieron", function (r) { return r.status === "aprobada" && !r.checkin_at; }], ["Todos los inscriptos", function () { return true; }]].forEach(function (s) {
+    [["Aprobados", function (r) { return r.status === "aprobada"; }], ["Asistieron", function (r) { return !!r.checkin_at; }], ["No asistieron", function (r) { return r.status === "aprobada" && !r.checkin_at; }], ["Todos los inscriptos", function () { return true; }]].forEach(function (s) {
       var rows = rowsFor(evs, regs, s[1]);
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Evento: "Sin registros" }]), s[0]);
     });
@@ -441,9 +453,12 @@ function submitReg() {
     if (f.required && !v && !bad) bad = "Falta completar: " + f.label + ".";
   });
   if (!bad && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) bad = "Revisá el email: tiene que tener el formato nombre@dominio.com.";
+  d.consent = !!($("f-consent") || {}).checked;
+  if (!bad && !d.consent) bad = "Para inscribirte tenés que aceptar el uso de tus datos para este evento.";
   function keep(msg) {
     UI.err = msg; render();
     fieldsOf(e).forEach(function (f) { var el = $("f-" + f.id); if (el) { if (f.type === "checkbox") el.checked = !!d[f.id]; else el.value = d[f.id] || ""; } });
+    if ($("f-consent")) $("f-consent").checked = !!d.consent;
   }
   if (bad) return keep(bad);
   var btn = document.querySelector("#regform button[type=submit]"); if (btn) { btn.disabled = true; btn.textContent = "Enviando…"; }
@@ -471,7 +486,7 @@ document.addEventListener("click", function (x) {
   if (a === "confirm") { b.disabled = true; return api.confirm(id).then(function () { if (S.ticket) S.ticket.confirmed = true; render(); toast("Asistencia confirmada. ¡Te esperamos!"); }).catch(fail); }
   if (a === "logout") { camStop(); return api.logout().then(function () { S.session = null; S.org = null; S.regs = []; return loadEvents(); }).then(render).catch(fail); }
   if (!S.org) return;
-  if (a === "tab") { UI.tab = id; UI.scan = null; if (id !== "check") camStop(); render(); return loadAdmin(); }
+  if (a === "tab") { UI.tab = id; UI.scan = null; UI.ask = null; if (id !== "check") camStop(); render(); return loadAdmin(); }
   if (a === "filter") { UI.filter = id; return render(); }
   if (a === "reload") { b.disabled = true; return loadEvents().then(loadAdmin); }
   if (a === "mk") { UI.mk = id; return render(); }
@@ -518,7 +533,7 @@ document.addEventListener("click", function (x) {
 document.addEventListener("change", function (x) {
   var el = x.target, e = cur();
   if (!S.org) return;
-  if (el.id === "selev") { UI.cur = el.value; UI.scan = null; S.regs = []; S.log = []; render(); return loadAdmin(); }
+  if (el.id === "selev") { UI.cur = el.value; UI.scan = null; UI.ask = null; S.regs = []; S.log = []; render(); return loadAdmin(); }
   if (!e) return;
   if (el.id === "ed-img") {
     if (!el.files || !el.files[0]) return;
@@ -674,7 +689,8 @@ function kTap() {
 function vTotem() {
   var p = K.phase, logo = '<button class="klogo" data-k="tap" aria-label="Cubo Itaú">' + (document.querySelector(".logo") ? document.querySelector(".logo").outerHTML : "Cubo Itaú") + "</button>";
   var scanForm = '<form id="kscanform" class="kscan" autocomplete="off"><label for="kscan">Código</label><input id="kscan" autocomplete="off" autocapitalize="characters" spellcheck="false"></form>';
-  var foot = '<div class="kfoot">' + esc(K.evTitle) + "</div>";
+  if (K.evTitle && p !== "setup" && p !== "login" && p !== "denied") logo = '<div class="khead">' + logo + '<span class="kev">' + esc(K.evTitle) + "</span></div>";
+  var foot = '<div class="kfoot">Acreditación · Cubo Itaú</div>';
   if (p === "loading") return '<div class="kz"><div></div><p class="kbig">Cargando…</p><div></div></div>';
   if (p === "login") {
     return '<div class="kz">' + logo + '<form id="kloginform" class="card stack" style="width:min(420px,100%);text-align:left"><h2>Activar tótem</h2><p class="note">Ingresá con el usuario del tótem. Queda guardado en este equipo.</p>' +
@@ -751,11 +767,120 @@ document.addEventListener("submit", function (x) {
 }, true);
 setInterval(function () { if (route().v === "totem") kFocus(); }, 1500);
 function printLabelFor(r, title) {
-  var L = CFG.label || { w: 90, h: 55 }, st = $("pgsize") || document.head.appendChild(Object.assign(document.createElement("style"), { id: "pgsize" }));
-  st.textContent = "@page{size:" + L.w + "mm " + L.h + "mm;margin:0}";
-  $("printarea").innerHTML = '<div class="label"><div class="n">' + esc(r.data.nombre) + "<br>" + esc(r.data.apellido) + '</div><div class="c">' + esc(r.data.empresa) + '</div><div class="e">' + esc(title) + " · Cubo Itaú</div></div>";
+  printHtml(labelInner(r.data.nombre, r.data.apellido, r.data.empresa, title), "label");
+}
+
+
+/* ───────── impresión (etiqueta o certificado) ───────── */
+function printHtml(html, kind) {
+  var L = CFG.label || { w: 100, h: 62 }, st = $("pgsize") || document.head.appendChild(Object.assign(document.createElement("style"), { id: "pgsize" }));
+  st.textContent = kind === "cert" ? "@page{size:A4 landscape;margin:0}" : "@page{size:" + L.w + "mm " + L.h + "mm;margin:0}";
+  $("printarea").className = kind === "cert" ? "pcert" : "plabel";
+  $("printarea").innerHTML = html;
   setTimeout(function () { window.print(); }, 80);
 }
+
+/* ───────── certificado público (#/certificado/CODIGO) ───────── */
+function certHtml(c) {
+  var e = c.event, logo = document.querySelector(".logo");
+  return '<div class="cert"><div class="cert-top">' + (logo ? logo.outerHTML : "<b>CUBO ITAÚ</b>") + '<span>' + esc(e.place) + "</span></div>" +
+    '<div class="cert-body"><div class="cert-k">Certificado de asistencia</div><div class="cert-s">Se certifica que</div>' +
+    '<div class="cert-n">' + esc(c.nombre + " " + c.apellido) + "</div>" + (c.empresa ? '<div class="cert-e">' + esc(c.empresa) + "</div>" : "") +
+    '<div class="cert-t">' + esc(c.text) + "</div></div>" +
+    '<div class="cert-foot"><div class="cert-sig"><div class="cert-line"></div>Cubo Itaú</div><div class="cert-code">Código de verificación ' + esc(c.code) + "<br>" + esc(cap1(fmt(e.starts_at, { day: "numeric", month: "long", year: "numeric" }))) + "</div></div></div>";
+}
+function vCertificado() {
+  var c = S.cert;
+  if (c === undefined) return '<p class="spin">Buscando tu certificado…</p>';
+  if (!c) return '<div class="stack"><h2>No encontramos ese certificado</h2><p class="note">El certificado está disponible para quienes registraron su ingreso al evento. Revisá que el enlace sea el del correo.</p><div><a class="btn" href="#/">Ver la agenda</a></div></div>';
+  return '<div class="stack" style="align-items:center"><div class="certview">' + certHtml(c) + '</div><div class="row" style="justify-content:center"><button class="btn" data-act="certprint">Descargar PDF</button><span class="note">En el cuadro de impresión elegí «Guardar como PDF».</span></div></div>';
+}
+
+/* ───────── recordatorios y certificados (panel) ───────── */
+function siteUrl() { return location.origin + location.pathname.replace(/index\.html$/, ""); }
+function waPhone(raw) {
+  var d = String(raw || "").replace(/\D/g, "");
+  if (!d) return "";
+  if (/^09\d{7}$/.test(d)) return "598" + d.slice(1);
+  if (/^9\d{7}$/.test(d)) return "598" + d;
+  if (/^00/.test(d)) return d.slice(2);
+  return d;
+}
+function waText(e, r) {
+  var t = tpl(e, "whatsapp").body, d = r ? r.data : { nombre: "", apellido: "", empresa: "" };
+  return fill(t, e, d).replace(/\{entrada\}/g, r ? siteUrl() + "#/entrada/" + r.code : siteUrl() + "#/e/" + e.slug).replace(/Hola ,/g, "Hola,").replace(/\s+,/g, ",");
+}
+function lastSent(rs, key) {
+  var t = rs.reduce(function (m, r) { return r[key] && r[key] > m ? r[key] : m; }, "");
+  return t ? "Último envío: " + fmt(t, { day: "2-digit", month: "2-digit" }) + " " + hm(t) + "." : "Todavía no se envió.";
+}
+function bulkBox(kind, n, label, warn) {
+  var me = (S.session && S.session.user && S.session.user.email) || "";
+  var ask = UI.ask === kind ? '<div class="res warn stack" style="gap:10px"><span>Se van a enviar ' + n + (n === 1 ? " correo" : " correos") + ". ¿Confirmás?</span>" + (warn ? '<span style="font-weight:400">' + esc(warn) + "</span>" : "") +
+    '<div class="row"><button class="btn sm" data-act="bulkgo" data-id="' + kind + '">Sí, enviar</button><button class="btn ghost sm" data-act="bulkno">Cancelar</button></div></div>' : "";
+  return '<form class="row bulktest" data-kind="' + kind + '"><input class="inp" type="email" id="bt-' + kind + '" value="' + esc(me) + '" aria-label="Email para la prueba" style="flex:1;min-width:180px"><button class="btn ghost sm" type="submit">Enviarme una prueba</button></form>' +
+    '<div class="row"><button class="btn sm" data-act="bulkask" data-id="' + kind + '"' + (n ? "" : " disabled") + ">" + label + "</button></div>" + ask;
+}
+function tEnvios(e, rs) {
+  var ok = rs.filter(function (r) { return r.status === "aprobada"; }), att = rs.filter(function (r) { return r.checkin_at; });
+  var tel = (e.fields || []).find(function (f) { return f.type === "tel"; }), ended = e.ends_at < new Date().toISOString();
+  var rec = tpl(e, "recordatorio"), cer = tpl(e, "certificado"), wa = tpl(e, "whatsapp");
+  var waRows = ok.map(function (r) {
+    var ph = tel ? waPhone(r.data[tel.id]) : "";
+    return "<tr><td><b>" + esc(fullName(r)) + '</b><br><span class="note">' + esc(r.data.empresa) + "</span></td><td>" + esc(tel ? r.data[tel.id] || "—" : "—") + "</td><td>" +
+      (ph ? '<a class="btn ghost sm" target="_blank" rel="noopener" href="https://wa.me/' + ph + "?text=" + encodeURIComponent(waText(e, r)) + '">Abrir WhatsApp</a>' : '<span class="note">Sin teléfono</span>') + "</td></tr>";
+  }).join("");
+  return '<div class="stack" style="gap:28px">' +
+    '<div class="fb"><div class="stack"><h3>Recordatorio por correo</h3><p class="note">Va a las ' + ok.length + " personas aprobadas, con su código QR y el enlace a su entrada. " + lastSent(rs, "reminder_sent_at") + "</p>" +
+    '<div class="field"><label for="rc-s">Asunto</label><input class="inp" id="rc-s" data-m="recordatorio" data-mk="subj" value="' + esc(rec.subj) + '"></div>' +
+    '<div class="field"><label for="rc-b">Mensaje</label><textarea class="inp" id="rc-b" rows="3" data-m="recordatorio" data-mk="body">' + esc(rec.body) + "</textarea></div>" +
+    bulkBox("recordatorio", ok.length, "Enviar recordatorio a " + ok.length + (ok.length === 1 ? " persona" : " personas")) + "</div>" +
+    '<div class="stack"><h3>Recordatorio por WhatsApp</h3>' +
+    (tel ? '<p class="note">Cada botón abre WhatsApp con el mensaje listo para esa persona, con su enlace de entrada. Hay que tocar Enviar en cada chat.</p>' :
+      '<p class="note">El formulario no pide teléfono. Agregá el campo para que las próximas inscripciones lo tengan.</p><div><button class="btn sm" data-act="addtel">Agregar campo Celular (WhatsApp)</button></div>') +
+    '<div class="field"><label for="wa-b">Mensaje</label><textarea class="inp" id="wa-b" rows="3" data-m="whatsapp" data-mk="body">' + esc(wa.body) + '</textarea><span class="note">Variables: {nombre} {evento} {fecha} {hora} {lugar} {entrada}</span></div>' +
+    '<div class="row"><button class="btn ghost sm" data-act="wacopy">Copiar mensaje general</button><span class="note">Para un grupo o lista de difusión.</span></div>' +
+    (ok.length ? '<div class="scroll"><table><thead><tr><th>Persona</th><th>Teléfono</th><th></th></tr></thead><tbody>' + waRows + "</tbody></table></div>" : "") + "</div></div>" +
+    '<div class="fb"><div class="stack"><h3>Certificados de asistencia</h3><p class="note">Va a las ' + att.length + (att.length === 1 ? " persona que registró" : " personas que registraron") + " su ingreso. Cada una recibe un enlace para descargar su certificado en PDF. " + lastSent(rs, "certificate_sent_at") + "</p>" +
+    '<div class="field"><label for="ct-t">Texto del certificado</label><textarea class="inp" id="ct-t" rows="2" data-e="cert_text">' + esc(e.cert_text || CERTDEF) + '</textarea><span class="note">Variables: {nombre} {evento} {fecha} {lugar}</span></div>' +
+    '<div class="field"><label for="ce-s">Asunto del correo</label><input class="inp" id="ce-s" data-m="certificado" data-mk="subj" value="' + esc(cer.subj) + '"></div>' +
+    '<div class="field"><label for="ce-b">Mensaje del correo</label><textarea class="inp" id="ce-b" rows="2" data-m="certificado" data-mk="body">' + esc(cer.body) + "</textarea></div>" +
+    bulkBox("certificado", att.length, "Enviar certificados a " + att.length + (att.length === 1 ? " persona" : " personas"), ended ? "" : "El evento todavía no terminó: quienes ingresen después no lo van a recibir.") + "</div>" +
+    '<div class="stack"><span class="lbl">Vista previa</span><div class="certview">' + certHtml({ code: (att[0] || {}).code || "CI-EJEMPLO00", nombre: att[0] ? att[0].data.nombre : "Lucía", apellido: att[0] ? att[0].data.apellido : "Fernández", empresa: att[0] ? att[0].data.empresa : "Estudio Prisma",
+      text: fill(e.cert_text || CERTDEF, e, att[0] ? att[0].data : { nombre: "Lucía", apellido: "Fernández", empresa: "Estudio Prisma" }), event: e }) + "</div></div></div></div>";
+}
+document.addEventListener("submit", function (x) {
+  if (!x.target.classList || !x.target.classList.contains("bulktest")) return;
+  x.preventDefault(); x.stopImmediatePropagation();
+  var kind = x.target.dataset.kind, to = $("bt-" + kind).value.trim(), e = cur();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return toast("Escribí un email válido para la prueba.");
+  api.sendBulk(e.id, kind, to).then(function () { toast("Prueba enviada a " + to + ". El resultado aparece en Correos → Enviados."); }).catch(fail);
+}, true);
+document.addEventListener("click", function (x) {
+  var b = x.target.closest("[data-act]"); if (!b || b.disabled) return;
+  var a = b.dataset.act, e = cur();
+  if (a === "certprint" && S.cert) return printHtml(certHtml(S.cert), "cert");
+  if (!S.org || !e) return;
+  if (a === "bulkask") { UI.ask = b.dataset.id; return render(); }
+  if (a === "bulkno") { UI.ask = null; return render(); }
+  if (a === "bulkgo") {
+    b.disabled = true;
+    return api.sendBulk(e.id, b.dataset.id, null).then(function (res) {
+      UI.ask = null; toast("Se enviaron " + res.sent + " correos. El estado de cada uno aparece en Correos → Enviados.");
+      return loadRegs();
+    }).then(render).catch(function (err) { render(); fail(err); });
+  }
+  if (a === "addtel") {
+    var fs = (e.fields || []).slice();
+    if (!fs.some(function (f) { return f.type === "tel"; })) fs.push({ id: "telefono", label: "Celular (WhatsApp)", type: "tel", required: false });
+    return patchEvent({ fields: fs }, "Se agregó el campo Celular al formulario");
+  }
+  if (a === "wacopy") {
+    var msg = waText(e, null);
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(msg).then(function () { toast("Mensaje copiado"); }, function () { toast(msg); });
+    return toast(msg);
+  }
+});
 
 /* ───────── arranque ───────── */
 function boot() {

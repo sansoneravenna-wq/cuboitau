@@ -117,7 +117,6 @@ td.acts .btn{margin-right:6px}
 .res.warn{background:var(--warn-soft);color:var(--warn)}
 .res.bad{background:var(--bad-soft);color:var(--bad)}
 /* etiqueta: papel blanco real, por eso colores fijos */
-.label{background:#fff;color:#111;border:1px dashed #9aa1b1;border-radius:6px;aspect-ratio:90/55;width:100%;max-width:340px;padding:18px;display:flex;flex-direction:column;justify-content:center;gap:4px}
 .label .n{font-family:var(--display);font-weight:700;font-size:28px;line-height:1.02;overflow-wrap:anywhere}
 .label .c{font-size:16px;font-weight:500;color:#333}
 .label .e{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#666;margin-top:auto}
@@ -172,3 +171,35 @@ body.kiosk .wrap{max-width:none;padding:0;gap:0}
 .kkey.wide{max-width:none;flex:3 1 0;font-size:20px}
 .kkey:active,.kres:active{background:var(--line)}
 .kvideo{width:min(70vw,420px)}
+
+/* ── etiqueta de gafete (papel térmico: solo negro) ── */
+.label{background:#fff;color:#000;border:1px dashed #9aa1b1;border-radius:6px;width:100%;max-width:360px;box-sizing:border-box;padding:14px 16px;display:flex;flex-direction:column;gap:2px;font-family:var(--body)}
+.label .lt{display:flex;justify-content:space-between;align-items:center;margin-bottom:auto;padding-bottom:6px}
+.label .lt .logo{height:15px;width:auto;color:#000}
+.label .logo path[fill="#FF6201"]{fill:#000}
+.label .lt span{font-size:9px;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
+.label .n{font-family:var(--display);font-weight:700;font-size:28px;line-height:1.02;overflow-wrap:anywhere;letter-spacing:-.01em}
+.label .c{font-size:15px;font-weight:500;overflow-wrap:anywhere}
+.label .e{margin-top:auto;border-top:2px solid #000;padding-top:4px;font-size:9px;letter-spacing:.08em;text-transform:uppercase;font-weight:600}
+/* ── certificado ── */
+.certview{width:100%;max-width:880px;container-type:inline-size}
+.cert{background:#fff;color:#141414;aspect-ratio:297/210;width:100%;box-sizing:border-box;padding:6% 7% 5%;display:flex;flex-direction:column;border-left:10px solid #FF6201;font-family:var(--body);border-radius:6px}
+.cert .cert-top{display:flex;justify-content:space-between;align-items:center;font-size:1.6cqi;color:#555}
+.cert .cert-top .logo{height:3.6cqi;width:auto;color:#141414}
+.cert .cert-body{margin:auto 0;display:flex;flex-direction:column;gap:1.2cqi}
+.cert .cert-k{font-size:1.7cqi;letter-spacing:.18em;text-transform:uppercase;color:#b84700;font-weight:600}
+.cert .cert-s{font-size:2cqi;color:#555}
+.cert .cert-n{font-family:var(--display);font-weight:700;font-size:6.4cqi;line-height:1.02;letter-spacing:-.02em}
+.cert .cert-e{font-size:2.2cqi;color:#333}
+.cert .cert-t{font-size:2.3cqi;line-height:1.45;max-width:60ch;margin-top:1cqi}
+.cert .cert-foot{display:flex;justify-content:space-between;align-items:flex-end;font-size:1.6cqi;color:#333}
+.cert .cert-line{width:22cqi;border-top:1.5px solid #141414;margin-bottom:.8cqi}
+.cert .cert-code{text-align:right;font-family:var(--mono);font-size:1.4cqi;color:#555}
+/* ── tótem: cabecera ── */
+.khead{display:flex;flex-direction:column;align-items:center;gap:6px}
+.kev{font-size:16px;color:var(--muted)}
+@media print{
+  #printarea.plabel .label{border:0;border-radius:0;max-width:none;width:100%;height:100%;aspect-ratio:auto!important;padding:4mm 5mm}
+  #printarea.pcert{display:block!important;width:297mm;height:210mm}
+  #printarea.pcert .cert{width:297mm;height:210mm;aspect-ratio:auto;border-radius:0;container-type:inline-size}
+}

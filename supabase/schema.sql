@@ -45,6 +45,10 @@ create table if not exists public.registrations (
   unique (event_id, email)
 );
 create index if not exists registrations_event_idx on public.registrations(event_id);
+alter table public.registrations add column if not exists qr_url text;
+alter table public.registrations add column if not exists reminder_sent_at timestamptz;
+alter table public.registrations add column if not exists certificate_sent_at timestamptz;
+alter table public.events add column if not exists cert_text text;
 
 create table if not exists public.app_config (key text primary key, value text not null);
 
@@ -154,6 +158,10 @@ create or replace function priv.tpl(ev public.events, kind text, part text) retu
       when 'aprobada.body'  then 'Tu lugar está confirmado. Presentá el código QR de este correo en el ingreso.'
       when 'rechazada.subj' then 'Tu solicitud para {evento}'
       when 'rechazada.body' then 'Esta vez no pudimos confirmar tu lugar. Gracias por tu interés; te esperamos en los próximos eventos.'
+      when 'recordatorio.subj' then 'Recordatorio: {evento}'
+      when 'recordatorio.body' then 'Te esperamos el {fecha}, de {hora}, en {lugar}. Acordate de tener a mano el código QR de tu entrada.'
+      when 'certificado.subj' then 'Tu certificado de asistencia a {evento}'
+      when 'certificado.body' then 'Gracias por participar. Ya podés descargar tu certificado de asistencia.'
     end)
 $$;
 
@@ -271,6 +279,11 @@ begin
     raise exception 'Hay muchas solicitudes en este momento. Probá de nuevo en unos minutos.';
   end if;
 
+  if coalesce(p_data->>'consent','') <> 'true' then
+    raise exception 'Para inscribirte tenés que aceptar el uso de tus datos para este evento.';
+  end if;
+  clean := clean || jsonb_build_object('consent', true);
+
   foreach k in array array['nombre','apellido','email','empresa'] loop
     v := btrim(coalesce(p_data->>k,''));
     if v = '' then raise exception 'Falta completar: %.', initcap(k); end if;
@@ -329,11 +342,14 @@ begin
   if not found then raise exception 'No encontramos esa inscripción.'; end if;
 
   if p_action = 'aprobar' then
-    update public.registrations set status = 'aprobada', reviewed_by = v_org, reviewed_at = now() where id = p_reg returning * into r;
+    update public.registrations set status = 'aprobada', reviewed_by = v_org, reviewed_at = now(),
+      qr_url = coalesce(case when p_qr_url like 'https://%' then p_qr_url end, qr_url) where id = p_reg returning * into r;
   elsif p_action = 'rechazar' then
     if r.checkin_at is not null then raise exception 'Esta persona ya ingresó al evento; no se puede rechazar.'; end if;
     update public.registrations set status = 'rechazada', reviewed_by = v_org, reviewed_at = now() where id = p_reg returning * into r;
-  elsif p_action <> 'reenviar' then
+  elsif p_action = 'reenviar' then
+    if p_qr_url like 'https://%' then update public.registrations set qr_url = p_qr_url where id = p_reg returning * into r; end if;
+  else
     raise exception 'Acción no válida.';
   end if;
   perform priv.mail_for(r, r.status, p_qr_url);
@@ -510,10 +526,109 @@ begin
   return priv.kiosk_reg(r);
 end $$;
 
+-- ───────────── Recordatorios y certificados ─────────────
+create or replace function priv.event_block(ev public.events) returns text language sql stable as $$
+  select '<p style="margin:0 0 18px;"><b>' || priv.esc(ev.title) || '</b><br>' || priv.esc(priv.fecha(ev.starts_at)) || ' · ' || priv.hora(ev.starts_at, ev.ends_at)
+      || '<br>' || priv.esc(ev.place || ', ' || ev.address) || '</p>'
+$$;
+
+create or replace function priv.bulk_html(ev public.events, r public.registrations, kind text) returns text
+language plpgsql stable as $$
+declare site text := rtrim(coalesce(priv.cfg('site_url'),''),'/'); h text;
+begin
+  h := '<p style="margin:0 0 14px;">Hola ' || priv.esc(r.data->>'nombre') || ':</p>'
+    || '<p style="margin:0 0 18px;">' || replace(priv.esc(priv.fill(priv.tpl(ev, kind, 'body'), ev, r.data)), E'\n', '<br>') || '</p>'
+    || priv.event_block(ev);
+  if kind = 'recordatorio' then
+    if r.qr_url like 'https://%' then
+      h := h || '<p style="margin:0 0 18px;"><img src="' || priv.esc(r.qr_url) || '" width="140" height="140" alt="Código QR de tu entrada" style="display:block;border-radius:6px;background:#ffffff;">'
+             || '<span style="font-family:Consolas,Menlo,monospace;font-size:13px;color:#9b9ba1;">' || r.code || '</span></p>';
+    end if;
+    if site <> '' then h := h || '<p style="margin:0;">' || priv.btn(site || '/#/entrada/' || r.code, 'Ver mi entrada') || '</p>'; end if;
+  else
+    if site <> '' then h := h || '<p style="margin:0;">' || priv.btn(site || '/#/certificado/' || r.code, 'Descargar mi certificado') || '</p>'; end if;
+  end if;
+  return priv.wrap(h);
+end $$;
+
+-- Envío masivo: recordatorio a aprobados o certificado a quienes asistieron. Con p_test_to manda una sola prueba.
+create or replace function public.send_bulk(p_event uuid, p_kind text, p_test_to text default null) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare ev public.events; r public.registrations; v_key text := priv.cfg('resend_api_key');
+        v_from text := coalesce(nullif(priv.cfg('mail_from'),''), 'Cubo Itaú Eventos <onboarding@resend.dev>');
+        batch jsonb := '[]'::jsonb; ids uuid[] := '{}'; tos text[] := '{}'; subs text[] := '{}'; v_req bigint; n int := 0; v_note text; i int;
+begin
+  if not public.is_admin() then raise exception 'No tenés permiso de administrador.'; end if;
+  if p_kind not in ('recordatorio','certificado') then raise exception 'Tipo de envío no válido.'; end if;
+  select * into ev from public.events where id = p_event;
+  if not found then raise exception 'No encontramos el evento.'; end if;
+
+  if p_test_to is not null then
+    if btrim(p_test_to) !~ '^[^\s@]+@[^\s@]+\.[^\s@]+$' then raise exception 'Escribí un email válido para la prueba.'; end if;
+    select * into r from public.registrations where event_id = ev.id
+      and (case when p_kind = 'recordatorio' then status = 'aprobada' else checkin_at is not null end) order by created_at limit 1;
+    if not found then
+      r.code := 'CI-EJEMPLO00'; r.data := '{"nombre":"Nombre","apellido":"Apellido","empresa":"Empresa"}'::jsonb;
+    end if;
+    perform priv.send_mail(btrim(p_test_to), '[Prueba] ' || priv.fill(priv.tpl(ev, p_kind, 'subj'), ev, r.data),
+      priv.bulk_html(ev, r, p_kind), null, ev.id, null, p_kind || '-prueba');
+    return jsonb_build_object('ok', true, 'sent', 1);
+  end if;
+
+  for r in select * from public.registrations where event_id = ev.id
+      and (case when p_kind = 'recordatorio' then status = 'aprobada' else checkin_at is not null end) order by created_at loop
+    batch := batch || jsonb_build_array(jsonb_build_object('from', v_from, 'to', jsonb_build_array(r.email),
+      'subject', priv.fill(priv.tpl(ev, p_kind, 'subj'), ev, r.data), 'html', priv.bulk_html(ev, r, p_kind)));
+    ids := ids || r.id; tos := tos || r.email; subs := subs || priv.fill(priv.tpl(ev, p_kind, 'subj'), ev, r.data);
+    n := n + 1;
+    if jsonb_array_length(batch) = 100 then
+      perform priv.send_batch(batch, ids, tos, subs, ev.id, p_kind, v_key);
+      batch := '[]'::jsonb; ids := '{}'; tos := '{}'; subs := '{}';
+    end if;
+  end loop;
+  if jsonb_array_length(batch) > 0 then perform priv.send_batch(batch, ids, tos, subs, ev.id, p_kind, v_key); end if;
+
+  if p_kind = 'recordatorio' then
+    update public.registrations set reminder_sent_at = now() where event_id = ev.id and status = 'aprobada';
+  else
+    update public.registrations set certificate_sent_at = now() where event_id = ev.id and checkin_at is not null;
+  end if;
+  return jsonb_build_object('ok', true, 'sent', n);
+end $$;
+
+create or replace function priv.send_batch(batch jsonb, ids uuid[], tos text[], subs text[], p_event uuid, p_kind text, v_key text) returns void
+language plpgsql security definer set search_path = public as $$
+declare v_req bigint; v_note text;
+begin
+  if coalesce(v_key,'') = '' then
+    v_note := 'No enviado: falta cargar la clave de Resend';
+  else
+    begin
+      select net.http_post(url := 'https://api.resend.com/emails/batch', body := batch,
+        headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || v_key)) into v_req;
+    exception when others then v_note := 'Error al enviar: ' || sqlerrm;
+    end;
+  end if;
+  for i in 1..array_length(ids, 1) loop
+    insert into public.email_log (event_id, registration_id, kind, recipient, subject, request_id, note)
+    values (p_event, ids[i], p_kind, tos[i], subs[i], v_req, v_note);
+  end loop;
+end $$;
+
+-- Certificado público: solo para quien registró su ingreso
+create or replace function public.certificate(p_code text) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object('code', r.code, 'nombre', r.data->>'nombre', 'apellido', r.data->>'apellido', 'empresa', r.data->>'empresa',
+    'text', priv.fill(coalesce(nullif(e.cert_text,''), 'Por su participación en {evento}, realizado el {fecha} en {lugar}.'), e, r.data),
+    'event', jsonb_build_object('title', e.title, 'starts_at', e.starts_at, 'ends_at', e.ends_at, 'place', e.place, 'address', e.address))
+  from public.registrations r join public.events e on e.id = r.event_id
+  where r.code = upper(btrim(p_code)) and r.checkin_at is not null
+$$;
+
 revoke all on schema priv from public, anon, authenticated;
 revoke execute on all functions in schema public from public;
 grant execute on function public.is_admin(), public.public_counts(), public.register(uuid, jsonb, text),
-  public.ticket(text), public.confirm_attendance(text) to anon, authenticated;
+  public.ticket(text), public.confirm_attendance(text), public.certificate(text) to anon, authenticated;
 grant execute on function public.review(uuid, text, text), public.checkin_validate(uuid, text), public.checkin_mark(uuid, boolean),
   public.set_config(text, text), public.config_status(), public.send_test_mail(text), public.email_log_list(uuid),
-  public.is_kiosk(), public.kiosk_events(), public.kiosk_lookup(uuid, text), public.kiosk_search(uuid, text), public.kiosk_print(uuid, uuid) to authenticated;
+  public.is_kiosk(), public.kiosk_events(), public.kiosk_lookup(uuid, text), public.kiosk_search(uuid, text), public.kiosk_print(uuid, uuid), public.send_bulk(uuid, text, text) to authenticated;

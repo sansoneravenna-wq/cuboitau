@@ -17,6 +17,8 @@ Plataforma de inscripciones de marca blanca para Cubo Itaú, desarrollada por Re
 | Registro de asistencia sin etiqueta | Check-in → *Registrar ingreso sin etiqueta* |
 | Administradores de Cubo Itaú y RedTickets | Tabla `admins`, con la organización de cada usuario |
 | Correos: pendiente, aprobación con QR y calendario, aviso al organizador | Administrador → Correos |
+| Recordatorio por correo (con QR) y por WhatsApp | Administrador → Recordatorios y certificados |
+| Certificados de asistencia en PDF para quienes ingresaron | Administrador → Recordatorios y certificados |
 | Tótem de autoacreditación con impresión automática | `#/totem` — guía en [TOTEM.md](TOTEM.md) |
 
 ## Puesta en marcha
@@ -49,6 +51,10 @@ En GitHub: **Settings → Pages → Deploy from a branch → `main` / root**. El
 3. Tocá **Enviar correo de prueba**.
 
 Sin dominio verificado, Resend solo entrega a la dirección con la que te registraste (alcanza para probar). Para escribirle a los asistentes hay que verificar un dominio en Resend y poner ese remitente en el panel, por ejemplo `Cubo Itaú Eventos <eventos@dominio.com>`.
+
+## Datos de prueba
+
+[`supabase/datos-de-prueba.sql`](supabase/datos-de-prueba.sql) carga 20 inscripciones en Beyond the Hype (con celular, para probar WhatsApp), un evento ya realizado con asistentes (para probar certificados) y el borrador del evento piloto de noviembre. Al final del archivo están las líneas para borrarlos.
 
 ## Cómo probar el flujo completo
 
