@@ -171,3 +171,4 @@ body.kiosk .wrap{max-width:none;padding:0;gap:0}
 .kkey{flex:1 1 0;max-width:72px;height:68px;border-radius:10px;border:1px solid var(--line);background:var(--sunk);color:var(--ink);font-size:24px;font-weight:600;cursor:pointer}
 .kkey.wide{max-width:none;flex:3 1 0;font-size:20px}
 .kkey:active,.kres:active{background:var(--line)}
+.kvideo{width:min(70vw,420px)}

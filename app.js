@@ -384,7 +384,7 @@ function camTick() {
     c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
     var x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(v, 0, 0, c.width, c.height);
     var hit = jsQR(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: "dontInvert" });
-    if (hit && hit.data) { cam.paused = true; if (navigator.vibrate) navigator.vibrate(80); doScan(hit.data); return; }
+    if (hit && hit.data) { cam.paused = true; if (navigator.vibrate) navigator.vibrate(80); if (route().v === "totem") kScan(hit.data); else doScan(hit.data); return; }
   }
   cam.timer = setTimeout(camTick, 160);
 }
@@ -593,15 +593,16 @@ window.addEventListener("hashchange", onRoute);
 
 
 /* ───────── tótem de acreditación (#/totem) ───────── */
-var KEY_EV = "cubo-totem-evento";
+var KEY_EV = "cubo-totem-evento", KEY_CAM = "cubo-totem-camara";
 var K = { phase: "loading", ev: null, evTitle: "", events: [], reg: null, msg: "", q: "", results: [], busy: false, timer: 0, taps: 0, tapTimer: 0, searchTimer: 0, err: "", loginEmail: "" };
 var KWAIT = { done: 12000, dup: 15000, error: 8000, search: 45000, confirm: 20000 };
 
 function kSave(id, title) { K.ev = id; K.evTitle = title; try { localStorage.setItem(KEY_EV, JSON.stringify({ id: id, title: title })); } catch (e) {} }
-function kLoad() { try { var v = JSON.parse(localStorage.getItem(KEY_EV) || "null"); if (v && v.id) { K.ev = v.id; K.evTitle = v.title || ""; } } catch (e) {} }
+function kLoad() { try { K.cam = localStorage.getItem(KEY_CAM) === "1"; } catch (e) {} try { var v = JSON.parse(localStorage.getItem(KEY_EV) || "null"); if (v && v.id) { K.ev = v.id; K.evTitle = v.title || ""; } } catch (e) {} }
 function kGo(phase, extra) {
   clearTimeout(K.timer);
   K.phase = phase; if (extra) Object.assign(K, extra);
+  if (phase === "scan") { cam.paused = false; if (K.cam && !cam.on && K.ev) camStart(); }
   if (KWAIT[phase]) K.timer = setTimeout(function () { kGo("scan", { reg: null, msg: "", q: "", results: [] }); }, KWAIT[phase]);
   render();
   kFocus();
@@ -644,7 +645,10 @@ function normCode(raw) {
 }
 function kScan(raw) {
   var code = normCode(raw);
-  if (!code || K.busy || K.phase === "setup" || K.phase === "login") return;
+  if (!code || K.busy || K.phase === "setup" || K.phase === "login") { cam.paused = false; return; }
+  // La cámara puede volver a ver el mismo QR apenas termina: se ignora unos segundos
+  if (code === K.lastCode && Date.now() - K.lastAt < 8000) { cam.paused = false; return; }
+  K.lastCode = code; K.lastAt = Date.now();
   K.busy = true;
   api.kioskLookup(K.ev, code).then(function (res) {
     K.busy = false;
@@ -685,7 +689,7 @@ function vTotem() {
     }).join("");
     return '<div class="kz">' + logo + '<div class="stack" style="width:min(640px,100%);align-items:stretch"><h1 style="font-size:40px">Elegí el evento</h1>' +
       (list || '<p class="kbig">No hay eventos publicados para hoy o los próximos días.</p>') +
-      '<div class="row" style="justify-content:center"><button class="btn ghost" data-k="testprint">Imprimir etiqueta de prueba</button>' + (K.ev ? '<button class="btn ghost" data-k="back">Volver</button>' : "") + '<button class="btn ghost" data-k="logout">Cerrar sesión del tótem</button></div></div><div></div></div>';
+      '<button class="kres' + (K.cam ? " on" : "") + '" data-k="camtoggle"><b>Leer con la cámara de este equipo: ' + (K.cam ? "Sí" : "No") + "</b><span>" + (K.cam ? "Útil para probar o si no hay lector USB." : "Con lector USB no hace falta.") + '</span></button><div class="row" style="justify-content:center"><button class="btn ghost" data-k="testprint">Imprimir etiqueta de prueba</button>' + (K.ev ? '<button class="btn ghost" data-k="back">Volver</button>' : "") + '<button class="btn ghost" data-k="logout">Cerrar sesión del tótem</button></div></div><div></div></div>';
   }
   if (p === "search") {
     var rows = [["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"], ["A", "S", "D", "F", "G", "H", "J", "K", "L", "Ñ"], ["Z", "X", "C", "V", "B", "N", "M"]];
@@ -712,7 +716,7 @@ function vTotem() {
     return '<div class="kz">' + logo + '<div class="stack" style="align-items:center"><span class="kok bad" aria-hidden="true">×</span><h1>No pudimos validar tu entrada</h1><p class="kbig">' + esc(K.msg) + " Acercate a la mesa de acreditación.</p>" +
       '<div class="row" style="justify-content:center"><button class="btn kbtn" data-k="home">Volver</button><button class="btn ghost kbtn" data-k="search">Buscarme por nombre</button></div></div>' + scanForm + foot + "</div>";
   }
-  return '<div class="kz">' + logo + '<div class="stack" style="align-items:center;gap:28px"><h1>Acercá el código QR<br>de tu entrada al lector</h1><div class="kframe" aria-hidden="true"></div><p class="kbig">Lo encontrás en el correo de confirmación.</p></div>' +
+  return '<div class="kz">' + logo + '<div class="stack" style="align-items:center;gap:28px"><h1>Acercá el código QR<br>de tu entrada al lector</h1>' + (cam.on ? '<div class="video kvideo"><video id="camv" playsinline muted></video></div>' : '<div class="kframe" aria-hidden="true"></div>') + '<p class="kbig">Lo encontrás en el correo de confirmación.</p></div>' +
     '<div class="stack" style="align-items:center;gap:14px"><button class="btn ghost kbtn" data-k="search">No tengo mi QR</button>' + foot + "</div>" + scanForm + "</div>";
 }
 
@@ -723,6 +727,7 @@ document.addEventListener("click", function (x) {
   var a = b.dataset.k;
   if (a === "tap") return kTap();
   if (a === "logout") { return api.logout().then(function () { S.session = null; S.org = null; try { localStorage.removeItem(KEY_EV); } catch (e) {} K.ev = null; kGo("login"); }); }
+  if (a === "camtoggle") { K.cam = !K.cam; try { localStorage.setItem(KEY_CAM, K.cam ? "1" : "0"); } catch (e) {} if (!K.cam) camStop(); return kGo("setup"); }
   if (a === "pickev") { kSave(b.dataset.id, b.dataset.title); return kGo("scan"); }
   if (a === "back") return kGo("scan");
   if (a === "testprint") return printLabelFor({ event_id: K.ev, data: { nombre: "Nombre", apellido: "Apellido de prueba", empresa: "Empresa" } }, K.evTitle || "Prueba de impresión");
