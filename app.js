@@ -399,7 +399,7 @@ function camTick() {
     c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
     var x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(v, 0, 0, c.width, c.height);
     var hit = jsQR(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: "dontInvert" });
-    if (hit && hit.data) { cam.paused = true; if (navigator.vibrate) navigator.vibrate(80); if (route().v === "totem") kScan(hit.data); else doScan(hit.data); return; }
+    if (hit && hit.data) { cam.paused = true; if (navigator.vibrate) navigator.vibrate(80); if (route().v === "totem") kScan(hit.data, true); else doScan(hit.data); return; }
   }
   cam.timer = setTimeout(camTick, 160);
 }
@@ -658,11 +658,11 @@ function normCode(raw) {
   var m = code.toUpperCase().replace(/[^A-Z0-9]/g, "");
   return /^CI[A-Z0-9]{10}$/.test(m) ? "CI-" + m.slice(2) : code;
 }
-function kScan(raw) {
+function kScan(raw, fromCam) {
   var code = normCode(raw);
   if (!code || K.busy || K.phase === "setup" || K.phase === "login") { cam.paused = false; return; }
   // La cámara puede volver a ver el mismo QR apenas termina: se ignora unos segundos
-  if (code === K.lastCode && Date.now() - K.lastAt < 8000) { cam.paused = false; return; }
+  if (fromCam && code === K.lastCode && Date.now() - K.lastAt < 8000) { cam.paused = false; return; }
   K.lastCode = code; K.lastAt = Date.now();
   K.busy = true;
   api.kioskLookup(K.ev, code).then(function (res) {
