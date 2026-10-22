@@ -50,7 +50,12 @@ function makeApi(sb) {
     log: function (ev) { return un(sb.rpc("email_log_list", { p_event: ev })); },
     conf: function () { return un(sb.rpc("config_status")); },
     setConf: function (k, v) { return un(sb.rpc("set_config", { p_key: k, p_value: v })); },
-    testMail: function (to) { return un(sb.rpc("send_test_mail", { p_to: to })); }
+    testMail: function (to) { return un(sb.rpc("send_test_mail", { p_to: to })); },
+    isKiosk: function () { return un(sb.rpc("is_kiosk")); },
+    kioskEvents: function () { return un(sb.rpc("kiosk_events")); },
+    kioskLookup: function (ev, code) { return un(sb.rpc("kiosk_lookup", { p_event: ev, p_code: code })); },
+    kioskSearch: function (ev, q) { return un(sb.rpc("kiosk_search", { p_event: ev, p_q: q })); },
+    kioskPrint: function (ev, id) { return un(sb.rpc("kiosk_print", { p_event: ev, p_reg: id })); }
   };
 }
 
@@ -76,6 +81,7 @@ function route() {
   if (p[0] === "e" && p[1]) return { v: "evento", slug: decodeURIComponent(p[1]) };
   if (p[0] === "entrada" && p[1]) return { v: "entrada", code: decodeURIComponent(p[1]).toUpperCase() };
   if (p[0] === "admin") return { v: "admin" };
+  if (p[0] === "totem") return { v: "totem" };
   return { v: "agenda" };
 }
 function tpl(e, kind) { var m = (e.mails || {})[kind] || {}; return { subj: m.subj || MAILDEF[kind].subj, body: m.body || MAILDEF[kind].body }; }
@@ -167,6 +173,7 @@ function onRoute() {
   var r = route();
   UI.formOpen = false; UI.err = ""; UI.sent = false; UI.scan = null;
   if (r.v !== "admin" || UI.tab !== "check") camStop();
+  if (r.v === "totem") { camStop(); return kEnter(); }
   if (r.v === "entrada") {
     S.ticket = undefined; render();
     api.ticket(r.code).then(function (t) { S.ticket = t || null; render(); }).catch(function () { S.ticket = null; render(); });
@@ -347,7 +354,8 @@ function render() {
     '<a class="nb" href="#/admin" aria-current="' + (r.v === "admin") + '">Administrador</a>' +
     (S.session ? '<button data-act="logout">Salir</button>' : "");
   if (!S.ready) return;
-  $("app").innerHTML = r.v === "evento" ? vEvento(r.slug) : r.v === "entrada" ? vEntrada(r.code) : r.v === "admin" ? vAdmin() : vAgenda();
+  document.body.classList.toggle("kiosk", r.v === "totem");
+  $("app").innerHTML = r.v === "totem" ? vTotem() : r.v === "evento" ? vEvento(r.slug) : r.v === "entrada" ? vEntrada(r.code) : r.v === "admin" ? vAdmin() : vAgenda();
   document.title = r.v === "evento" && S.events.find(function (x) { return x.slug === r.slug; }) ? S.events.find(function (x) { return x.slug === r.slug; }).title + " · Cubo Itaú" : "Cubo Itaú Eventos";
   camAttach();
 }
@@ -381,7 +389,7 @@ function camTick() {
   cam.timer = setTimeout(camTick, 160);
 }
 function doScan(raw) {
-  var code = String(raw || "").trim(); if (code.indexOf("/") >= 0) code = code.split("/").pop();
+  var code = normCode(raw);
   api.validate(UI.cur, code).then(function (res) { UI.scan = res; render(); }).catch(function (e) { UI.scan = { kind: "bad", msg: e.message }; render(); });
 }
 function printLabel(r) {
@@ -582,6 +590,167 @@ document.addEventListener("submit", function (x) {
 });
 
 window.addEventListener("hashchange", onRoute);
+
+
+/* ───────── tótem de acreditación (#/totem) ───────── */
+var KEY_EV = "cubo-totem-evento";
+var K = { phase: "loading", ev: null, evTitle: "", events: [], reg: null, msg: "", q: "", results: [], busy: false, timer: 0, taps: 0, tapTimer: 0, searchTimer: 0, err: "", loginEmail: "" };
+var KWAIT = { done: 12000, dup: 15000, error: 8000, search: 45000, confirm: 20000 };
+
+function kSave(id, title) { K.ev = id; K.evTitle = title; try { localStorage.setItem(KEY_EV, JSON.stringify({ id: id, title: title })); } catch (e) {} }
+function kLoad() { try { var v = JSON.parse(localStorage.getItem(KEY_EV) || "null"); if (v && v.id) { K.ev = v.id; K.evTitle = v.title || ""; } } catch (e) {} }
+function kGo(phase, extra) {
+  clearTimeout(K.timer);
+  K.phase = phase; if (extra) Object.assign(K, extra);
+  if (KWAIT[phase]) K.timer = setTimeout(function () { kGo("scan", { reg: null, msg: "", q: "", results: [] }); }, KWAIT[phase]);
+  render();
+  kFocus();
+}
+function kFocus() {
+  var i = $("kscan");
+  if (i && document.activeElement !== i && !$("dlg").open) { try { i.focus({ preventScroll: true }); } catch (e) { i.focus(); } }
+}
+function kEnter() {
+  document.body.classList.add("kiosk");
+  kLoad();
+  if (!S.session) return kGo("login");
+  K.phase = "loading"; render();
+  api.isKiosk().then(function (ok) {
+    if (!ok) return kGo("denied");
+    return api.kioskEvents().then(function (evs) {
+      K.events = evs || [];
+      var still = K.ev && K.events.find(function (e) { return e.id === K.ev; });
+      if (still) { K.evTitle = still.title; kGo("scan"); } else kGo("setup");
+    });
+  }).catch(function (e) { kGo("error", { msg: e.message }); });
+}
+function kLabel(reg) {
+  return { event_id: K.ev, data: { nombre: reg.nombre, apellido: reg.apellido, empresa: reg.empresa } };
+}
+function kPrint(reg, first) {
+  if (K.busy) return;
+  K.busy = true;
+  api.kioskPrint(K.ev, reg.id).then(function (row) {
+    K.busy = false;
+    printLabelFor(kLabel(row), K.evTitle);
+    kGo("done", { reg: row, msg: first ? "" : "reprint" });
+  }).catch(function (e) { K.busy = false; kGo("error", { msg: e.message }); });
+}
+function normCode(raw) {
+  // Los lectores USB escriben como teclado en inglés: con el teclado en español el guion puede llegar como otro símbolo
+  var code = String(raw || "").trim(); if (code.indexOf("/") >= 0) code = code.split("/").pop();
+  var m = code.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return /^CI[A-Z0-9]{10}$/.test(m) ? "CI-" + m.slice(2) : code;
+}
+function kScan(raw) {
+  var code = normCode(raw);
+  if (!code || K.busy || K.phase === "setup" || K.phase === "login") return;
+  K.busy = true;
+  api.kioskLookup(K.ev, code).then(function (res) {
+    K.busy = false;
+    if (res.kind === "ok") return kPrint(res.reg, true);
+    if (res.kind === "dup") return kGo("dup", { reg: res.reg });
+    kGo("error", { msg: res.msg });
+  }).catch(function (e) { K.busy = false; kGo("error", { msg: e.message }); });
+}
+function kSearch() {
+  clearTimeout(K.searchTimer);
+  if (K.q.trim().length < 3) { K.results = []; return render(); }
+  var q = K.q;
+  K.searchTimer = setTimeout(function () {
+    api.kioskSearch(K.ev, q).then(function (rs) { if (K.q === q) { K.results = rs || []; render(); } }).catch(function (e) { toast(e.message); });
+  }, 250);
+}
+function kTap() {
+  K.taps++; clearTimeout(K.tapTimer);
+  K.tapTimer = setTimeout(function () { K.taps = 0; }, 2500);
+  if (K.taps >= 5) { K.taps = 0; api.kioskEvents().then(function (evs) { K.events = evs || []; kGo("setup"); }).catch(fail); }
+}
+
+function vTotem() {
+  var p = K.phase, logo = '<button class="klogo" data-k="tap" aria-label="Cubo Itaú">' + (document.querySelector(".logo") ? document.querySelector(".logo").outerHTML : "Cubo Itaú") + "</button>";
+  var scanForm = '<form id="kscanform" class="kscan" autocomplete="off"><label for="kscan">Código</label><input id="kscan" autocomplete="off" autocapitalize="characters" spellcheck="false"></form>';
+  var foot = '<div class="kfoot">' + esc(K.evTitle) + "</div>";
+  if (p === "loading") return '<div class="kz"><div></div><p class="kbig">Cargando…</p><div></div></div>';
+  if (p === "login") {
+    return '<div class="kz">' + logo + '<form id="kloginform" class="card stack" style="width:min(420px,100%);text-align:left"><h2>Activar tótem</h2><p class="note">Ingresá con el usuario del tótem. Queda guardado en este equipo.</p>' +
+      '<div class="field"><label for="kl-email">Email</label><input type="email" id="kl-email" autocomplete="username" value="' + esc(K.loginEmail) + '" required></div>' +
+      '<div class="field"><label for="kl-pass">Contraseña</label><input class="inp" type="password" id="kl-pass" autocomplete="current-password" required></div>' +
+      (K.err ? '<p class="err" role="alert">' + esc(K.err) + "</p>" : "") + '<button class="btn wide" type="submit">Activar</button></form><div></div></div>';
+  }
+  if (p === "denied") return '<div class="kz">' + logo + '<div class="stack" style="align-items:center"><h1>Este usuario no es un tótem</h1><p class="kbig">Pedile a RedTickets que lo habilite, o ingresá con otro usuario.</p><button class="btn kbtn ghost" data-k="logout">Cambiar de usuario</button></div><div></div></div>';
+  if (p === "setup") {
+    var list = K.events.map(function (e) {
+      return '<button class="kres' + (e.id === K.ev ? " on" : "") + '" data-k="pickev" data-id="' + e.id + '" data-title="' + esc(e.title) + '"><b>' + esc(e.title) + "</b><span>" + esc(cap1(when(e))) + " · " + esc(hours(e)) + "</span></button>";
+    }).join("");
+    return '<div class="kz">' + logo + '<div class="stack" style="width:min(640px,100%);align-items:stretch"><h1 style="font-size:40px">Elegí el evento</h1>' +
+      (list || '<p class="kbig">No hay eventos publicados para hoy o los próximos días.</p>') +
+      '<div class="row" style="justify-content:center"><button class="btn ghost" data-k="testprint">Imprimir etiqueta de prueba</button>' + (K.ev ? '<button class="btn ghost" data-k="back">Volver</button>' : "") + '<button class="btn ghost" data-k="logout">Cerrar sesión del tótem</button></div></div><div></div></div>';
+  }
+  if (p === "search") {
+    var rows = [["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"], ["A", "S", "D", "F", "G", "H", "J", "K", "L", "Ñ"], ["Z", "X", "C", "V", "B", "N", "M"]];
+    var keys = rows.map(function (r) { return '<div class="krow">' + r.map(function (k) { return '<button class="kkey" data-k="key" data-id="' + k + '">' + k + "</button>"; }).join("") + "</div>"; }).join("") +
+      '<div class="krow"><button class="kkey wide" data-k="key" data-id=" ">Espacio</button><button class="kkey wide" data-k="del">Borrar</button></div>';
+    var res = K.results.map(function (r, i) { return '<button class="kres" data-k="pick" data-id="' + i + '"><b>' + esc(r.nombre + " " + r.apellido) + "</b><span>" + esc(r.empresa) + "</span></button>"; }).join("");
+    var hint = K.q.trim().length < 3 ? "Escribí al menos 3 letras de tu apellido, nombre o empresa." : (res ? "" : "No encontramos a nadie con ese dato entre los inscriptos aprobados.");
+    return '<div class="kz">' + logo + '<div class="stack" style="width:min(760px,100%);align-items:stretch"><h1 style="font-size:40px">Buscá tu inscripción</h1>' +
+      '<div class="kinput" aria-live="polite">' + (K.q ? esc(K.q) : '<span class="note">Apellido, nombre o empresa</span>') + "</div>" +
+      (hint ? '<p class="kbig" style="font-size:20px">' + esc(hint) + "</p>" : "") + '<div class="stack" style="gap:10px">' + res + "</div>" +
+      '<div class="kkeys">' + keys + '</div><button class="btn ghost kbtn" data-k="home">Volver a leer el QR</button></div>' + foot + "</div>";
+  }
+  if (p === "confirm") {
+    return '<div class="kz">' + logo + '<div class="stack" style="align-items:center"><h1>¿Sos ' + esc(K.reg.nombre + " " + K.reg.apellido) + '?</h1><p class="kbig">' + esc(K.reg.empresa) + "</p>" +
+      '<div class="row" style="justify-content:center"><button class="btn kbtn" data-k="print">Sí, imprimir mi etiqueta</button><button class="btn ghost kbtn" data-k="search">No, volver</button></div></div>' + foot + "</div>";
+  }
+  if (p === "done" || p === "dup") {
+    var r = K.reg, dup = p === "dup";
+    return '<div class="kz">' + logo + '<div class="stack" style="align-items:center"><span class="kok" aria-hidden="true">' + (dup ? "!" : "✓") + "</span><h1>" + (dup ? "Ya estás acreditado/a, " : "¡Hola, ") + esc(r.nombre) + (dup ? "" : "!") + "</h1>" +
+      '<p class="kbig">' + (dup ? "Tu ingreso quedó registrado a las " + esc(hm(r.checkin_at)) + ". ¿Necesitás otra etiqueta?" : "Retirá tu etiqueta debajo del lector.") + "</p>" +
+      '<div class="row" style="justify-content:center"><button class="btn kbtn" data-k="home">' + (dup ? "No, gracias" : "Listo") + '</button><button class="btn ghost kbtn" data-k="reprint">' + (dup ? "Imprimir etiqueta" : "Reimprimir") + "</button></div></div>" + scanForm + foot + "</div>";
+  }
+  if (p === "error") {
+    return '<div class="kz">' + logo + '<div class="stack" style="align-items:center"><span class="kok bad" aria-hidden="true">×</span><h1>No pudimos validar tu entrada</h1><p class="kbig">' + esc(K.msg) + " Acercate a la mesa de acreditación.</p>" +
+      '<div class="row" style="justify-content:center"><button class="btn kbtn" data-k="home">Volver</button><button class="btn ghost kbtn" data-k="search">Buscarme por nombre</button></div></div>' + scanForm + foot + "</div>";
+  }
+  return '<div class="kz">' + logo + '<div class="stack" style="align-items:center;gap:28px"><h1>Acercá el código QR<br>de tu entrada al lector</h1><div class="kframe" aria-hidden="true"></div><p class="kbig">Lo encontrás en el correo de confirmación.</p></div>' +
+    '<div class="stack" style="align-items:center;gap:14px"><button class="btn ghost kbtn" data-k="search">No tengo mi QR</button>' + foot + "</div>" + scanForm + "</div>";
+}
+
+document.addEventListener("click", function (x) {
+  if (route().v !== "totem") return;
+  var b = x.target.closest("[data-k]");
+  if (!b) { setTimeout(kFocus, 0); return; }
+  var a = b.dataset.k;
+  if (a === "tap") return kTap();
+  if (a === "logout") { return api.logout().then(function () { S.session = null; S.org = null; try { localStorage.removeItem(KEY_EV); } catch (e) {} K.ev = null; kGo("login"); }); }
+  if (a === "pickev") { kSave(b.dataset.id, b.dataset.title); return kGo("scan"); }
+  if (a === "back") return kGo("scan");
+  if (a === "testprint") return printLabelFor({ event_id: K.ev, data: { nombre: "Nombre", apellido: "Apellido de prueba", empresa: "Empresa" } }, K.evTitle || "Prueba de impresión");
+  if (a === "home") return kGo("scan", { reg: null, msg: "", q: "", results: [] });
+  if (a === "search") return kGo("search", { q: K.phase === "confirm" ? K.q : "", results: K.phase === "confirm" ? K.results : [] });
+  if (a === "key") { K.q = (K.q + b.dataset.id).replace(/^ +/, "").slice(0, 40); kGo("search"); return kSearch(); }
+  if (a === "del") { K.q = K.q.slice(0, -1); kGo("search"); return kSearch(); }
+  if (a === "pick") return kGo("confirm", { reg: K.results[+b.dataset.id] });
+  if (a === "print") return kPrint(K.reg, !K.reg.checkin_at);
+  if (a === "reprint") return kPrint(K.reg, false);
+});
+document.addEventListener("submit", function (x) {
+  if (route().v !== "totem") return;
+  x.preventDefault(); x.stopImmediatePropagation();
+  if (x.target.id === "kscanform") { var v = $("kscan").value; $("kscan").value = ""; return kScan(v); }
+  if (x.target.id === "kloginform") {
+    K.loginEmail = $("kl-email").value.trim();
+    return api.login(K.loginEmail, $("kl-pass").value).then(function (s) { S.session = s; K.err = ""; return api.myOrg(); })
+      .then(function (org) { S.org = org; kEnter(); }).catch(function (e) { K.err = e.message; kGo("login"); });
+  }
+}, true);
+setInterval(function () { if (route().v === "totem") kFocus(); }, 1500);
+function printLabelFor(r, title) {
+  var L = CFG.label || { w: 90, h: 55 }, st = $("pgsize") || document.head.appendChild(Object.assign(document.createElement("style"), { id: "pgsize" }));
+  st.textContent = "@page{size:" + L.w + "mm " + L.h + "mm;margin:0}";
+  $("printarea").innerHTML = '<div class="label"><div class="n">' + esc(r.data.nombre) + "<br>" + esc(r.data.apellido) + '</div><div class="c">' + esc(r.data.empresa) + '</div><div class="e">' + esc(title) + " · Cubo Itaú</div></div>";
+  setTimeout(function () { window.print(); }, 80);
+}
 
 /* ───────── arranque ───────── */
 function boot() {

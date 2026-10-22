@@ -429,9 +429,91 @@ begin
     order by l.created_at desc limit 100;
 end $$;
 
+-- ───────────── Tótem de acreditación ─────────────
+-- Usuario propio del tótem: solo puede leer QR, buscar aprobados e imprimir. No ve el panel ni los datos de contacto.
+create table if not exists public.kiosks (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  label text not null default 'Tótem',
+  created_at timestamptz not null default now()
+);
+alter table public.kiosks enable row level security;
+revoke all on public.kiosks from anon, authenticated;
+grant select on public.kiosks to authenticated;
+drop policy if exists kiosks_self on public.kiosks;
+create policy kiosks_self on public.kiosks for select to authenticated using (user_id = auth.uid() or public.is_admin());
+
+create or replace function public.is_kiosk() returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.is_admin() or exists (select 1 from public.kiosks where user_id = auth.uid())
+$$;
+
+create or replace function priv.fold(t text) returns text language sql immutable as $$
+  select translate(lower(coalesce(t,'')), 'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc')
+$$;
+
+create or replace function priv.kiosk_reg(r public.registrations) returns jsonb language sql stable as $$
+  select jsonb_build_object('id', r.id, 'nombre', r.data->>'nombre', 'apellido', r.data->>'apellido',
+    'empresa', r.data->>'empresa', 'checkin_at', r.checkin_at)
+$$;
+
+-- Eventos que el tótem puede atender: publicados y que no terminaron hace más de un día
+create or replace function public.kiosk_events() returns table (id uuid, title text, starts_at timestamptz, ends_at timestamptz)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.is_kiosk() then raise exception 'Este usuario no está habilitado como tótem.'; end if;
+  return query select e.id, e.title, e.starts_at, e.ends_at from public.events e
+    where e.published and e.ends_at > now() - interval '1 day' order by e.starts_at limit 30;
+end $$;
+
+-- Lectura de un QR en el tótem
+create or replace function public.kiosk_lookup(p_event uuid, p_code text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare r public.registrations; v_code text := upper(btrim(coalesce(p_code,'')));
+begin
+  if not public.is_kiosk() then raise exception 'Este usuario no está habilitado como tótem.'; end if;
+  if v_code like '%/%' then v_code := regexp_replace(v_code, '^.*/', ''); end if;
+  select * into r from public.registrations where code = v_code;
+  if not found then return jsonb_build_object('kind','bad','msg','No encontramos ese código.'); end if;
+  if r.event_id <> p_event then return jsonb_build_object('kind','bad','msg','Este QR es de otro evento.'); end if;
+  if r.status <> 'aprobada' then return jsonb_build_object('kind','bad','msg','Tu inscripción todavía no está aprobada.'); end if;
+  return jsonb_build_object('kind', case when r.checkin_at is null then 'ok' else 'dup' end, 'reg', priv.kiosk_reg(r));
+end $$;
+
+-- Búsqueda de aprobados por nombre, apellido, empresa o email (mínimo 3 letras, máximo 6 resultados)
+create or replace function public.kiosk_search(p_event uuid, p_q text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare v_q text := priv.fold(btrim(coalesce(p_q,''))); v_like text;
+begin
+  if not public.is_kiosk() then raise exception 'Este usuario no está habilitado como tótem.'; end if;
+  if length(v_q) < 3 then return '[]'::jsonb; end if;
+  v_like := '%' || replace(replace(replace(v_q, '\', '\\'), '%', '\%'), '_', '\_') || '%';
+  return coalesce((
+    select jsonb_agg(priv.kiosk_reg(r) order by r.data->>'apellido', r.data->>'nombre')
+    from (select * from public.registrations
+          where event_id = p_event and status = 'aprobada'
+            and (priv.fold((data->>'nombre') || ' ' || (data->>'apellido')) like v_like
+              or priv.fold(data->>'apellido') like v_like
+              or priv.fold(data->>'empresa') like v_like
+              or priv.fold(email) like v_like)
+          order by data->>'apellido' limit 6) r), '[]'::jsonb);
+end $$;
+
+-- Registrar el ingreso desde el tótem e indicar que se imprimió la etiqueta
+create or replace function public.kiosk_print(p_event uuid, p_reg uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare r public.registrations;
+begin
+  if not public.is_kiosk() then raise exception 'Este usuario no está habilitado como tótem.'; end if;
+  update public.registrations set checkin_at = coalesce(checkin_at, now()), label_printed = true
+  where id = p_reg and event_id = p_event and status = 'aprobada' returning * into r;
+  if not found then raise exception 'No pudimos registrar el ingreso.'; end if;
+  return priv.kiosk_reg(r);
+end $$;
+
 revoke all on schema priv from public, anon, authenticated;
 revoke execute on all functions in schema public from public;
 grant execute on function public.is_admin(), public.public_counts(), public.register(uuid, jsonb, text),
   public.ticket(text), public.confirm_attendance(text) to anon, authenticated;
 grant execute on function public.review(uuid, text, text), public.checkin_validate(uuid, text), public.checkin_mark(uuid, boolean),
-  public.set_config(text, text), public.config_status(), public.send_test_mail(text), public.email_log_list(uuid) to authenticated;
+  public.set_config(text, text), public.config_status(), public.send_test_mail(text), public.email_log_list(uuid),
+  public.is_kiosk(), public.kiosk_events(), public.kiosk_lookup(uuid, text), public.kiosk_search(uuid, text), public.kiosk_print(uuid, uuid) to authenticated;

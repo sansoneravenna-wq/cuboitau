@@ -17,6 +17,7 @@ Plataforma de inscripciones de marca blanca para Cubo Itaú, desarrollada por Re
 | Registro de asistencia sin etiqueta | Check-in → *Registrar ingreso sin etiqueta* |
 | Administradores de Cubo Itaú y RedTickets | Tabla `admins`, con la organización de cada usuario |
 | Correos: pendiente, aprobación con QR y calendario, aviso al organizador | Administrador → Correos |
+| Tótem de autoacreditación con impresión automática | `#/totem` — guía en [TOTEM.md](TOTEM.md) |
 
 ## Puesta en marcha
 

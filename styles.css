@@ -145,3 +145,29 @@ tr.clk{cursor:pointer} tr.clk:hover td{background:var(--surface)}
 .nav a.nb{padding:7px 12px;border-radius:8px;color:var(--muted);font-weight:500;text-decoration:none}
 .nav a.nb[aria-current="true"]{background:var(--sunk);color:var(--ink)}
 .nav{align-items:center}
+
+/* ── tótem ── */
+body.kiosk .top,body.kiosk .foot{display:none}
+body.kiosk .wrap{max-width:none;padding:0;gap:0}
+.kz{min-height:100vh;min-height:100dvh;box-sizing:border-box;padding:5vh 6vw;display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:4vh;text-align:center}
+.kz h1{font-size:clamp(34px,5.4vw,64px);line-height:1.08}
+.kbig{font-size:clamp(20px,2.4vw,28px);color:var(--muted);max-width:30ch}
+.klogo{background:none;border:0;padding:8px;color:var(--ink);cursor:default}
+.klogo .logo{height:34px}
+.kbtn{font-size:clamp(20px,2.2vw,26px);padding:20px 36px;border-radius:14px;min-width:220px}
+.kframe{width:min(36vw,220px);aspect-ratio:1;border:4px solid var(--brand);border-radius:22px;animation:kpulse 2.2s ease-in-out infinite}
+@keyframes kpulse{50%{transform:scale(1.06);opacity:.7}}
+@media (prefers-reduced-motion:reduce){.kframe{animation:none}}
+.kfoot{font-size:15px;color:var(--muted)}
+.kok{width:96px;height:96px;border-radius:50%;display:grid;place-items:center;font-size:56px;font-weight:700;background:var(--ok-soft);color:var(--ok)}
+.kok.bad{background:var(--bad-soft);color:var(--bad)}
+.kscan{position:absolute;left:-9999px;top:0;width:1px;height:1px;overflow:hidden}
+.kinput{font-size:32px;min-height:64px;border:2px solid var(--line);border-radius:14px;padding:12px 20px;text-align:left;background:var(--surface)}
+.kres{display:flex;flex-direction:column;gap:2px;align-items:flex-start;text-align:left;width:100%;padding:18px 22px;border-radius:14px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:22px;cursor:pointer}
+.kres span{font-size:17px;color:var(--muted)}
+.kres.on{border-color:var(--brand)}
+.kkeys{display:flex;flex-direction:column;gap:8px}
+.krow{display:flex;gap:8px;justify-content:center}
+.kkey{flex:1 1 0;max-width:72px;height:68px;border-radius:10px;border:1px solid var(--line);background:var(--sunk);color:var(--ink);font-size:24px;font-weight:600;cursor:pointer}
+.kkey.wide{max-width:none;flex:3 1 0;font-size:20px}
+.kkey:active,.kres:active{background:var(--line)}
