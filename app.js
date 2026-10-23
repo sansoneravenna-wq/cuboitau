@@ -336,6 +336,7 @@ function tMails(e, rs) {
     '<form id="confform" class="card stack"><p class="note">Se configura una sola vez y vale para todos los eventos.</p>' +
     '<div class="field"><label for="cf-key">Clave de Resend ' + (c.has_key ? '<span class="pill si">Cargada</span>' : '<span class="pill no">Falta cargar</span>') + '</label><input class="inp" type="password" id="cf-key" autocomplete="off" placeholder="' + (c.has_key ? "Dejar vacío para mantener la actual" : "re_...") + '"></div>' +
     '<div class="field"><label for="cf-from">Remitente</label><input class="inp" id="cf-from" value="' + esc(c.mail_from || "") + '" placeholder="Cubo Itaú Eventos &lt;onboarding@resend.dev&gt;"></div>' +
+    '<div class="field"><label for="cf-reply">Responder a (opcional)</label><input class="inp" type="email" id="cf-reply" value="' + esc(c.reply_to || "") + '" placeholder="eventos@cuboitau.com"><span class="note">Si alguien responde un correo, la respuesta llega a esta dirección.</span></div>' +
     '<div class="field"><label for="cf-site">Dirección del sitio (para los enlaces de los correos)</label><input class="inp" id="cf-site" value="' + esc(c.site_url || "") + '"></div>' +
     '<div class="row"><button class="btn sm" type="submit">Guardar</button></div></form>' +
     '<form id="testform" class="row"><input class="inp" type="email" id="cf-test" placeholder="tu@email.com" aria-label="Email para la prueba" style="flex:1;min-width:160px" value="' + esc((S.session && S.session.user && S.session.user.email) || "") + '"><button class="btn ghost sm" type="submit">Enviar correo de prueba</button></form>' +
@@ -595,7 +596,7 @@ document.addEventListener("submit", function (x) {
   if (!S.org) return;
   if (id === "scanform") return doScan($("scancode").value);
   if (id === "confform") {
-    var jobs = [api.setConf("mail_from", $("cf-from").value), api.setConf("site_url", $("cf-site").value)];
+    var jobs = [api.setConf("mail_from", $("cf-from").value), api.setConf("site_url", $("cf-site").value), api.setConf("reply_to", $("cf-reply").value)];
     if ($("cf-key").value.trim()) jobs.push(api.setConf("resend_api_key", $("cf-key").value));
     return Promise.all(jobs).then(loadMails).then(function () { render(); toast("Configuración guardada"); }).catch(fail);
   }

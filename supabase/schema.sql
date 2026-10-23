@@ -211,6 +211,7 @@ begin
   else
     begin
       v_body := jsonb_build_object('from', v_from, 'to', jsonb_build_array(p_to), 'subject', p_subject, 'html', p_html);
+      if coalesce(priv.cfg('reply_to'),'') <> '' then v_body := v_body || jsonb_build_object('reply_to', priv.cfg('reply_to')); end if;
       if p_attachments is not null then v_body := v_body || jsonb_build_object('attachments', p_attachments); end if;
       select net.http_post(url := 'https://api.resend.com/emails', body := v_body,
         headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || v_key)) into v_req;
@@ -409,7 +410,7 @@ create or replace function public.set_config(p_key text, p_value text) returns v
 language plpgsql security definer set search_path = public as $$
 begin
   if not public.is_admin() then raise exception 'No tenés permiso de administrador.'; end if;
-  if p_key not in ('resend_api_key','mail_from','site_url') then raise exception 'Configuración no válida.'; end if;
+  if p_key not in ('resend_api_key','mail_from','site_url','reply_to') then raise exception 'Configuración no válida.'; end if;
   insert into public.app_config (key, value) values (p_key, btrim(coalesce(p_value,'')))
   on conflict (key) do update set value = excluded.value;
 end $$;
@@ -419,7 +420,7 @@ language plpgsql stable security definer set search_path = public as $$
 begin
   if not public.is_admin() then raise exception 'No tenés permiso de administrador.'; end if;
   return jsonb_build_object('has_key', coalesce(priv.cfg('resend_api_key'),'') <> '',
-    'mail_from', coalesce(priv.cfg('mail_from'),''), 'site_url', coalesce(priv.cfg('site_url'),''));
+    'mail_from', coalesce(priv.cfg('mail_from'),''), 'site_url', coalesce(priv.cfg('site_url'),''), 'reply_to', coalesce(priv.cfg('reply_to'),''));
 end $$;
 
 create or replace function public.send_test_mail(p_to text) returns void
@@ -598,7 +599,8 @@ begin
   for r in select * from public.registrations where event_id = ev.id
       and (case when p_kind = 'recordatorio' then status = 'aprobada' else checkin_at is not null end) order by created_at loop
     batch := batch || jsonb_build_array(jsonb_build_object('from', v_from, 'to', jsonb_build_array(r.email),
-      'subject', priv.fill(priv.tpl(ev, p_kind, 'subj'), ev, r.data), 'html', priv.bulk_html(ev, r, p_kind)));
+      'subject', priv.fill(priv.tpl(ev, p_kind, 'subj'), ev, r.data), 'html', priv.bulk_html(ev, r, p_kind))
+      || case when coalesce(priv.cfg('reply_to'),'') <> '' then jsonb_build_object('reply_to', priv.cfg('reply_to')) else '{}'::jsonb end);
     ids := ids || r.id; tos := tos || r.email; subs := subs || priv.fill(priv.tpl(ev, p_kind, 'subj'), ev, r.data);
     n := n + 1;
     if jsonb_array_length(batch) = 100 then
