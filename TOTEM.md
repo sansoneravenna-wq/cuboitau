@@ -1,6 +1,11 @@
 # Tótem de acreditación
 
-La persona acerca el QR al lector, la etiqueta sale sola y la pantalla ofrece **Listo** o **Reimprimir**. Si no tiene el QR, toca **No tengo mi QR** y se busca por apellido, nombre o empresa con el teclado de la pantalla.
+El tótem cumple dos funciones en la misma pantalla:
+
+- **Acreditación:** la persona acerca el QR al lector, la etiqueta sale sola y la pantalla ofrece **Listo** o **Reimprimir**. Si no tiene el QR, toca **No tengo mi QR** y se busca por apellido, nombre o empresa con el teclado de la pantalla.
+- **Agenda:** debajo se ven los próximos eventos publicados. Tocando uno se ve el detalle y se puede pedir la inscripción con el teclado en pantalla; queda pendiente de aprobación como en el sitio.
+
+Por defecto el tótem está en **modo automático**: acepta el QR de cualquier evento de Cubo que se esté realizando (desde 3 horas antes del inicio hasta 2 horas después del cierre). Si alguien acerca un QR de otra fecha, le avisa cuándo es su evento. La sección de acreditación aparece sola cuando hay un evento en curso; el resto del tiempo se ve solo la agenda. Desde la configuración (5 toques en el logo) también se puede fijar un único evento.
 
 Dirección del tótem: `https://sansoneravenna-wq.github.io/cuboitau/#/totem`
 
@@ -20,7 +25,7 @@ El usuario del tótem solo puede leer QR, buscar a los aprobados del evento eleg
 ## 2. Primera vez en el tótem
 
 1. Abrí la dirección del tótem e ingresá con el usuario del tótem. Queda guardado en ese equipo.
-2. Elegí el evento. También queda guardado.
+2. Queda en modo automático. Si preferís fijar un evento, tocá el logo 5 veces y elegilo.
 3. Tocá **Imprimir etiqueta de prueba** para revisar tamaño y márgenes.
 
 Para cambiar de evento o cerrar la sesión: **tocá el logo 5 veces seguidas**.

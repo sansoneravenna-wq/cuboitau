@@ -469,7 +469,13 @@ $$;
 
 create or replace function priv.kiosk_reg(r public.registrations) returns jsonb language sql stable as $$
   select jsonb_build_object('id', r.id, 'nombre', r.data->>'nombre', 'apellido', r.data->>'apellido',
-    'empresa', r.data->>'empresa', 'checkin_at', r.checkin_at)
+    'empresa', r.data->>'empresa', 'checkin_at', r.checkin_at, 'event_id', r.event_id,
+    'event_title', (select title from public.events where id = r.event_id))
+$$;
+
+-- Un evento "en curso" para el tótem: desde 3 horas antes del inicio hasta 2 horas después del fin
+create or replace function priv.in_window(ev public.events) returns boolean language sql stable as $$
+  select now() between ev.starts_at - interval '3 hours' and ev.ends_at + interval '2 hours'
 $$;
 
 -- Eventos que el tótem puede atender: publicados y que no terminaron hace más de un día
@@ -484,13 +490,24 @@ end $$;
 -- Lectura de un QR en el tótem
 create or replace function public.kiosk_lookup(p_event uuid, p_code text) returns jsonb
 language plpgsql stable security definer set search_path = public as $$
-declare r public.registrations; v_code text := upper(btrim(coalesce(p_code,'')));
+declare r public.registrations; ev public.events; v_code text := upper(btrim(coalesce(p_code,'')));
 begin
   if not public.is_kiosk() then raise exception 'Este usuario no está habilitado como tótem.'; end if;
   if v_code like '%/%' then v_code := regexp_replace(v_code, '^.*/', ''); end if;
   select * into r from public.registrations where code = v_code;
   if not found then return jsonb_build_object('kind','bad','msg','No encontramos ese código.'); end if;
-  if r.event_id <> p_event then return jsonb_build_object('kind','bad','msg','Este QR es de otro evento.'); end if;
+  if p_event is null then
+    -- Modo automático: vale el QR de cualquier evento que se esté realizando
+    select * into ev from public.events where id = r.event_id;
+    if now() < ev.starts_at - interval '3 hours' then
+      return jsonb_build_object('kind','bad','msg','Tu entrada es para ' || ev.title || ', el ' || priv.fecha(ev.starts_at) || '. Ese día te esperamos.');
+    end if;
+    if now() > ev.ends_at + interval '2 hours' then
+      return jsonb_build_object('kind','bad','msg','Esta entrada es de ' || ev.title || ', que ya terminó.');
+    end if;
+  elsif r.event_id <> p_event then
+    return jsonb_build_object('kind','bad','msg','Este QR es de otro evento.');
+  end if;
   if r.status <> 'aprobada' then return jsonb_build_object('kind','bad','msg','Tu inscripción todavía no está aprobada.'); end if;
   return jsonb_build_object('kind', case when r.checkin_at is null then 'ok' else 'dup' end, 'reg', priv.kiosk_reg(r));
 end $$;
@@ -506,7 +523,8 @@ begin
   return coalesce((
     select jsonb_agg(priv.kiosk_reg(r) order by r.data->>'apellido', r.data->>'nombre')
     from (select * from public.registrations
-          where event_id = p_event and status = 'aprobada'
+          where status = 'aprobada'
+            and (event_id = p_event or (p_event is null and event_id in (select e.id from public.events e where e.published and priv.in_window(e))))
             and (priv.fold((data->>'nombre') || ' ' || (data->>'apellido')) like v_like
               or priv.fold(data->>'apellido') like v_like
               or priv.fold(data->>'empresa') like v_like
@@ -521,7 +539,9 @@ declare r public.registrations;
 begin
   if not public.is_kiosk() then raise exception 'Este usuario no está habilitado como tótem.'; end if;
   update public.registrations set checkin_at = coalesce(checkin_at, now()), label_printed = true
-  where id = p_reg and event_id = p_event and status = 'aprobada' returning * into r;
+  where id = p_reg and status = 'aprobada'
+    and (event_id = p_event or (p_event is null and event_id in (select e.id from public.events e where priv.in_window(e))))
+  returning * into r;
   if not found then raise exception 'No pudimos registrar el ingreso.'; end if;
   return priv.kiosk_reg(r);
 end $$;

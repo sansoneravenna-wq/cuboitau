@@ -610,7 +610,7 @@ window.addEventListener("hashchange", onRoute);
 /* ───────── tótem de acreditación (#/totem) ───────── */
 var KEY_EV = "cubo-totem-evento", KEY_CAM = "cubo-totem-camara";
 var K = { phase: "loading", ev: null, evTitle: "", events: [], reg: null, msg: "", q: "", results: [], busy: false, timer: 0, taps: 0, tapTimer: 0, searchTimer: 0, err: "", loginEmail: "" };
-var KWAIT = { done: 12000, dup: 15000, error: 8000, search: 45000, confirm: 20000 };
+var KWAIT = { done: 12000, dup: 15000, error: 8000, search: 45000, confirm: 20000, kevent: 60000, kform: 120000, ksent: 10000 };
 
 function kSave(id, title) { K.ev = id; K.evTitle = title; try { localStorage.setItem(KEY_EV, JSON.stringify({ id: id, title: title })); } catch (e) {} }
 function kLoad() { try { K.cam = localStorage.getItem(KEY_CAM) === "1"; } catch (e) {} try { var v = JSON.parse(localStorage.getItem(KEY_EV) || "null"); if (v && v.id) { K.ev = v.id; K.evTitle = v.title || ""; } } catch (e) {} }
@@ -620,6 +620,7 @@ function kGo(phase, extra) {
   if (phase === "scan") { cam.paused = false; if (K.cam && !cam.on && K.ev) camStart(); }
   if (KWAIT[phase]) K.timer = setTimeout(function () { kGo("scan", { reg: null, msg: "", q: "", results: [] }); }, KWAIT[phase]);
   render();
+  kPrep();
   kFocus();
 }
 function kFocus() {
@@ -635,20 +636,22 @@ function kEnter() {
     if (!ok) return kGo("denied");
     return api.kioskEvents().then(function (evs) {
       K.events = evs || [];
-      var still = K.ev && K.events.find(function (e) { return e.id === K.ev; });
+      if (!K.ev) kSave("auto", "");
+      if (K.ev === "auto") return kGo("scan");
+      var still = K.events.find(function (e) { return e.id === K.ev; });
       if (still) { K.evTitle = still.title; kGo("scan"); } else kGo("setup");
     });
   }).catch(function (e) { kGo("error", { msg: e.message }); });
 }
 function kLabel(reg) {
-  return { event_id: K.ev, data: { nombre: reg.nombre, apellido: reg.apellido, empresa: reg.empresa } };
+  return { event_id: reg.event_id, data: { nombre: reg.nombre, apellido: reg.apellido, empresa: reg.empresa } };
 }
 function kPrint(reg, first) {
   if (K.busy) return;
   K.busy = true;
-  api.kioskPrint(K.ev, reg.id).then(function (row) {
+  api.kioskPrint(kEv(), reg.id).then(function (row) {
     K.busy = false;
-    printLabelFor(kLabel(row), K.evTitle);
+    printLabelFor(kLabel(row), row.event_title || K.evTitle);
     kGo("done", { reg: row, msg: first ? "" : "reprint" });
   }).catch(function (e) { K.busy = false; kGo("error", { msg: e.message }); });
 }
@@ -665,7 +668,7 @@ function kScan(raw, fromCam) {
   if (fromCam && code === K.lastCode && Date.now() - K.lastAt < 8000) { cam.paused = false; return; }
   K.lastCode = code; K.lastAt = Date.now();
   K.busy = true;
-  api.kioskLookup(K.ev, code).then(function (res) {
+  api.kioskLookup(kEv(), code).then(function (res) {
     K.busy = false;
     if (res.kind === "ok") return kPrint(res.reg, true);
     if (res.kind === "dup") return kGo("dup", { reg: res.reg });
@@ -677,7 +680,7 @@ function kSearch() {
   if (K.q.trim().length < 3) { K.results = []; return render(); }
   var q = K.q;
   K.searchTimer = setTimeout(function () {
-    api.kioskSearch(K.ev, q).then(function (rs) { if (K.q === q) { K.results = rs || []; render(); } }).catch(function (e) { toast(e.message); });
+    api.kioskSearch(kEv(), q).then(function (rs) { if (K.q === q) { K.results = rs || []; render(); } }).catch(function (e) { toast(e.message); });
   }, 250);
 }
 function kTap() {
@@ -703,8 +706,9 @@ function vTotem() {
     var list = K.events.map(function (e) {
       return '<button class="kres' + (e.id === K.ev ? " on" : "") + '" data-k="pickev" data-id="' + e.id + '" data-title="' + esc(e.title) + '"><b>' + esc(e.title) + "</b><span>" + esc(cap1(when(e))) + " · " + esc(hours(e)) + "</span></button>";
     }).join("");
-    return '<div class="kz">' + logo + '<div class="stack" style="width:min(640px,100%);align-items:stretch"><h1 style="font-size:40px">Elegí el evento</h1>' +
-      (list || '<p class="kbig">No hay eventos publicados para hoy o los próximos días.</p>') +
+    return '<div class="kz">' + logo + '<div class="stack" style="width:min(640px,100%);align-items:stretch"><h1 style="font-size:40px">Qué acredita este tótem</h1>' +
+      '<button class="kres' + (K.ev === "auto" ? " on" : "") + '" data-k="pickev" data-id="auto" data-title=""><b>Automático (recomendado)</b><span>Acredita cualquier evento de Cubo que se esté realizando, sin reconfigurar.</span></button>' +
+      (list ? '<p class="note" style="text-align:left">O solo un evento:</p>' + list : "") +
       '<button class="kres' + (K.cam ? " on" : "") + '" data-k="camtoggle"><b>Leer con la cámara de este equipo: ' + (K.cam ? "Sí" : "No") + "</b><span>" + (K.cam ? "Útil para probar o si no hay lector USB." : "Con lector USB no hace falta.") + '</span></button><div class="row" style="justify-content:center"><button class="btn ghost" data-k="testprint">Imprimir etiqueta de prueba</button>' + (K.ev ? '<button class="btn ghost" data-k="back">Volver</button>' : "") + '<button class="btn ghost" data-k="logout">Cerrar sesión del tótem</button></div></div><div></div></div>';
   }
   if (p === "search") {
@@ -732,15 +736,20 @@ function vTotem() {
     return '<div class="kz">' + logo + '<div class="stack" style="align-items:center"><span class="kok bad" aria-hidden="true">×</span><h1>No pudimos validar tu entrada</h1><p class="kbig">' + esc(K.msg) + " Acercate a la mesa de acreditación.</p>" +
       '<div class="row" style="justify-content:center"><button class="btn kbtn" data-k="home">Volver</button><button class="btn ghost kbtn" data-k="search">Buscarme por nombre</button></div></div>' + scanForm + foot + "</div>";
   }
-  return '<div class="kz">' + logo + '<div class="stack" style="align-items:center;gap:28px"><h1>Acercá el código QR<br>de tu entrada al lector</h1>' + (cam.on ? '<div class="video kvideo"><video id="camv" playsinline muted></video></div>' : '<div class="kframe" aria-hidden="true"></div>') + '<p class="kbig">Lo encontrás en el correo de confirmación.</p></div>' +
-    '<div class="stack" style="align-items:center;gap:14px"><button class="btn ghost kbtn" data-k="search">No tengo mi QR</button>' + foot + "</div>" + scanForm + "</div>";
+  if (p === "kevent") return kEventView(logo, scanForm, foot);
+  if (p === "kform") return kFormView(logo);
+  if (p === "ksent") return kSentView(logo, scanForm, foot);
+  return kHome(logo, scanForm, foot);
 }
 
 document.addEventListener("click", function (x) {
   if (route().v !== "totem") return;
+  kTouch();
   var b = x.target.closest("[data-k]");
   if (!b) { setTimeout(kFocus, 0); return; }
   var a = b.dataset.k;
+  if (a === "ev") return kGo("kevent", { sel: b.dataset.id, err: "" });
+  if (a === "regform") return kGo("kform", { err: "" });
   if (a === "tap") return kTap();
   if (a === "logout") { return api.logout().then(function () { S.session = null; S.org = null; try { localStorage.removeItem(KEY_EV); } catch (e) {} K.ev = null; kGo("login"); }); }
   if (a === "camtoggle") { K.cam = !K.cam; try { localStorage.setItem(KEY_CAM, K.cam ? "1" : "0"); } catch (e) {} if (!K.cam) camStop(); return kGo("setup"); }
@@ -759,6 +768,7 @@ document.addEventListener("submit", function (x) {
   if (route().v !== "totem") return;
   x.preventDefault(); x.stopImmediatePropagation();
   if (x.target.id === "kscanform") { var v = $("kscan").value; $("kscan").value = ""; return kScan(v); }
+  if (x.target.id === "kregform") return kRegister();
   if (x.target.id === "kloginform") {
     K.loginEmail = $("kl-email").value.trim();
     return api.login(K.loginEmail, $("kl-pass").value).then(function (s) { S.session = s; K.err = ""; return api.myOrg(); })
@@ -881,6 +891,116 @@ document.addEventListener("click", function (x) {
     return toast(msg);
   }
 });
+
+/* ───────── tótem: agenda e inscripción cuando no se usa como lector ───────── */
+function kEv() { return K.ev === "auto" ? null : K.ev; }
+function kToday() {
+  var now = Date.now();
+  return S.events.filter(function (e) { return e.published && Date.parse(e.starts_at) - 3 * 3600e3 <= now && now <= Date.parse(e.ends_at) + 2 * 3600e3; });
+}
+function kTouch() {
+  if (!KWAIT[K.phase]) return;
+  clearTimeout(K.timer);
+  K.timer = setTimeout(function () { kGo("scan", { reg: null, msg: "", q: "", results: [], err: "" }); }, KWAIT[K.phase]);
+}
+function kHome(logo, scanForm, foot) {
+  var acc = K.ev === "auto" ? kToday() : S.events.filter(function (e) { return e.id === K.ev; });
+  var up = S.events.filter(function (e) { return e.published && Date.parse(e.starts_at) > Date.now(); }).slice(0, 6);
+  var accBlock = acc.length ? '<section class="kacc"><span class="lbl">Acreditación</span><h1>¿Venís a ' + esc(acc.map(function (e) { return e.title; }).join(" o ")) + "?</h1>" +
+    '<p class="kbig">Acercá el código QR de tu entrada al lector.</p>' +
+    (cam.on ? '<div class="video kvideo"><video id="camv" playsinline muted></video></div>' : '<div class="kframe" aria-hidden="true"></div>') +
+    '<button class="btn ghost kbtn" data-k="search">No tengo mi QR</button></section>' : "";
+  var list = up.map(function (e) {
+    return '<button class="kcard" data-k="ev" data-id="' + e.id + '">' + cover(e, true) + '<span class="kcard-t"><b>' + esc(e.title) + "</b><span>" + esc(cap1(when(e))) + " · " + esc(hours(e)) + '</span></span><span class="kgo">Inscribirme</span></button>';
+  }).join("");
+  var agenda = '<section class="kag"><h2>' + (acc.length ? "Próximos eventos" : "Anotate a los próximos eventos de Cubo") + "</h2>" +
+    (list || '<p class="kbig">Pronto vamos a publicar nuevos eventos.</p>') + "</section>";
+  return '<div class="kz khome">' + logo + accBlock + agenda + foot + scanForm + "</div>";
+}
+function kEventView(logo, scanForm, foot) {
+  var e = evById(K.sel);
+  if (!e) return kHome(logo, scanForm, foot);
+  var d = e.description || "";
+  return '<div class="kz">' + logo + '<div class="stack kdet"><div class="kdet-cover">' + cover(e) + "</div><h1>" + esc(e.title) + "</h1>" +
+    '<p class="kbig">' + esc(cap1(when(e))) + " · " + esc(hours(e)) + "<br>" + esc(e.place + ", " + e.address) + "</p>" +
+    (d ? '<p class="kdesc">' + esc(d.length > 420 ? d.slice(0, 420) + "…" : d) + "</p>" : "") +
+    '<div class="row" style="justify-content:center"><button class="btn kbtn" data-k="regform">Inscribirme</button><button class="btn ghost kbtn" data-k="home">Volver</button></div>' +
+    '<p class="note">Requiere aprobación del organizador. Sin costo.</p></div>' + foot + scanForm + "</div>";
+}
+function kKeyboard() {
+  var rows = ["1234567890", "QWERTYUIOP", "ASDFGHJKLÑ", "ZXCVBNM-_"];
+  return '<div class="kkeys kb" aria-label="Teclado">' + rows.map(function (r) {
+    return '<div class="krow">' + r.split("").map(function (c) { return '<button type="button" class="kkey" data-kb="' + c + '">' + c + "</button>"; }).join("") + "</div>";
+  }).join("") + '<div class="krow"><button type="button" class="kkey" data-kb="@">@</button><button type="button" class="kkey" data-kb=".">.</button><button type="button" class="kkey wide" data-kb=".com">.com</button>' +
+    '<button type="button" class="kkey wide" data-kb=" ">Espacio</button><button type="button" class="kkey wide" data-kb="del">Borrar</button><button type="button" class="kkey wide" data-kb="next">Siguiente</button></div></div>';
+}
+function kFormView(logo) {
+  var e = evById(K.sel);
+  if (!e) return kHome(logo, "", "");
+  return '<div class="kz kformz">' + logo + '<form id="kregform" class="stack kform" novalidate><h2>Inscripción a ' + esc(e.title) + "</h2>" + formHtml(e, "kf") +
+    (K.err ? '<p class="err" role="alert">' + esc(K.err) + "</p>" : "") +
+    '<div class="row"><button class="btn kbtn" type="submit">Enviar solicitud</button><button class="btn ghost kbtn" type="button" data-k="ev" data-id="' + e.id + '">Cancelar</button></div></form>' + kKeyboard() + "</div>";
+}
+function kSentView(logo, scanForm, foot) {
+  var e = evById(K.sel) || { title: "" };
+  return '<div class="kz">' + logo + '<div class="stack" style="align-items:center"><span class="kok" aria-hidden="true">✓</span><h1>¡Listo, ' + esc(K.sentName) + "!</h1>" +
+    '<p class="kbig">Tu solicitud para ' + esc(e.title) + " quedó pendiente de aprobación. Te avisamos por correo.</p>" +
+    '<button class="btn kbtn" data-k="home">Volver al inicio</button></div>' + foot + scanForm + "</div>";
+}
+function kType(ch) {
+  var f = $("kregform"); if (!f) return;
+  var el = document.activeElement;
+  if (!el || !f.contains(el) || !/^(INPUT|TEXTAREA)$/.test(el.tagName) || el.type === "checkbox") {
+    el = f.querySelector("input:not([type=checkbox]), textarea"); if (!el) return; el.focus();
+  }
+  if (ch === "del") { el.value = el.value.slice(0, -1); return; }
+  if (ch === "next") {
+    var all = [].slice.call(f.querySelectorAll("input:not([type=checkbox]), textarea, select")), i = all.indexOf(el);
+    if (all[i + 1]) all[i + 1].focus();
+    return;
+  }
+  var v = el.value, c = ch;
+  if (/^[A-ZÑ]$/.test(c) && (el.type === "email" || (v && !/[\s\-]$/.test(v)))) c = c.toLowerCase();
+  if (el.type === "email") c = c.toLowerCase();
+  el.value = (v + c).slice(0, el.maxLength > 0 ? el.maxLength : 2000);
+}
+function kKeep(e, d, msg) {
+  K.err = msg; kGo("kform");
+  fieldsOf(e).forEach(function (f) { var el = $("kf-" + f.id); if (el) { if (f.type === "checkbox") el.checked = !!d[f.id]; else el.value = d[f.id] || ""; } });
+  if ($("kf-consent")) $("kf-consent").checked = !!d.consent;
+}
+function kRegister() {
+  var e = evById(K.sel), d = {}, bad = "";
+  if (!e || K.busy) return;
+  fieldsOf(e).forEach(function (f) {
+    var el = $("kf-" + f.id); if (!el) return;
+    var v = f.type === "checkbox" ? el.checked : el.value.trim(); d[f.id] = v;
+    if (f.required && !v && !bad) bad = "Falta completar: " + f.label + ".";
+  });
+  if (!bad && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) bad = "Revisá el email: tiene que tener el formato nombre@dominio.com.";
+  d.consent = !!($("kf-consent") || {}).checked;
+  if (!bad && !d.consent) bad = "Para inscribirte tenés que aceptar el uso de tus datos para este evento.";
+  if (bad) return kKeep(e, d, bad);
+  K.busy = true;
+  api.register(e.id, d, "").then(function () { K.busy = false; kGo("ksent", { sentName: d.nombre, err: "" }); })
+    .catch(function (err) { K.busy = false; kKeep(e, d, err.message); });
+}
+function kPrep() {
+  if (K.phase !== "kform") return;
+  var f = $("kregform"); if (!f) return;
+  [].slice.call(f.querySelectorAll("input:not([type=checkbox]), textarea")).forEach(function (i) { i.setAttribute("inputmode", "none"); });
+  var first = f.querySelector("input:not([type=checkbox])");
+  if (first && !document.activeElement.closest("#kregform")) first.focus();
+}
+document.addEventListener("pointerdown", function (x) {
+  var k = x.target.closest && x.target.closest("[data-kb]"); if (!k) return;
+  x.preventDefault(); kType(k.dataset.kb); kTouch();
+});
+document.addEventListener("mousedown", function (x) { if (x.target.closest && x.target.closest("[data-kb]")) x.preventDefault(); });
+document.addEventListener("input", function () { if (route().v === "totem") kTouch(); });
+setInterval(function () {
+  if (route().v === "totem" && K.phase === "scan" && S.ready) loadEvents().then(function () { if (K.phase === "scan") render(); }).catch(function () {});
+}, 300000);
 
 /* ───────── arranque ───────── */
 function boot() {
