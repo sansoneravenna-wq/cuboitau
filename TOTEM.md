@@ -7,7 +7,7 @@ El tótem cumple dos funciones en la misma pantalla:
 
 Por defecto el tótem está en **modo automático**: acepta el QR de cualquier evento de Cubo que se esté realizando (desde 3 horas antes del inicio hasta 2 horas después del cierre). Si alguien acerca un QR de otra fecha, le avisa cuándo es su evento. La sección de acreditación aparece sola cuando hay un evento en curso; el resto del tiempo se ve solo la agenda. Desde la configuración (5 toques en el logo) también se puede fijar un único evento.
 
-Dirección del tótem: `https://sansoneravenna-wq.github.io/cuboitau/#/totem`
+Dirección del tótem: `https://cuboeventos.uy/#/totem`
 
 ## 1. Base de datos (una vez)
 
@@ -49,7 +49,7 @@ Para cambiar de evento o cerrar la sesión: **tocá el logo 5 veces seguidas**.
 Creá un acceso directo a Chrome con este destino, todo en una línea:
 
 ```
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --kiosk --kiosk-printing --noerrdialogs --disable-session-crashed-bubble "https://sansoneravenna-wq.github.io/cuboitau/#/totem"
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --kiosk --kiosk-printing --noerrdialogs --disable-session-crashed-bubble "https://cuboeventos.uy/#/totem"
 ```
 
 - `--kiosk` abre en pantalla completa, sin barras ni pestañas.

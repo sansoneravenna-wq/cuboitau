@@ -42,7 +42,9 @@ En **Project Settings → API** copiá la *Project URL* y la clave *anon / publi
 
 ### 3. Publicar
 
-En GitHub: **Settings → Pages → Deploy from a branch → `main` / root**. El sitio queda en `https://sansoneravenna-wq.github.io/cuboitau/`.
+En GitHub: **Settings → Pages → Deploy from a branch → `main` / root**. El sitio queda en `https://cuboeventos.uy/` (el archivo `CNAME` del repositorio fija ese dominio).
+
+En Cloudflare, el DNS de `cuboeventos.uy` apunta a GitHub Pages con cuatro registros **A** en `@` (185.199.108.153, 185.199.109.153, 185.199.110.153, 185.199.111.153) y un **CNAME** `www` → `sansoneravenna-wq.github.io`, todos con la nube gris (*DNS only*).
 
 ### 4. Correos
 
