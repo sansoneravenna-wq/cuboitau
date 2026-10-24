@@ -2,7 +2,7 @@
 
 Plataforma de inscripciones de marca blanca para Cubo Itaú, desarrollada por RedTickets.
 
-- **Sitio**: páginas estáticas (este repositorio), publicadas con GitHub Pages.
+- **Sitio**: páginas estáticas (este repositorio), publicadas con Cloudflare Pages en `cuboeventos.uy`.
 - **Datos, ingreso de administradores y correos**: un proyecto de Supabase.
 - **Envío de correos**: Resend, llamado desde la base de datos.
 
@@ -42,9 +42,7 @@ En **Project Settings → API** copiá la *Project URL* y la clave *anon / publi
 
 ### 3. Publicar
 
-En GitHub: **Settings → Pages → Deploy from a branch → `main` / root**. El sitio queda en `https://cuboeventos.uy/` (el archivo `CNAME` del repositorio fija ese dominio).
-
-En Cloudflare, el DNS de `cuboeventos.uy` apunta a GitHub Pages con cuatro registros **A** en `@` (185.199.108.153, 185.199.109.153, 185.199.110.153, 185.199.111.153) y un **CNAME** `www` → `sansoneravenna-wq.github.io`, todos con la nube gris (*DNS only*).
+El sitio se publica con **Cloudflare Pages**, conectado a este repositorio: cada cambio que se sube a la rama `main` se publica solo en `https://cuboeventos.uy/` en uno o dos minutos. El proyecto de Cloudflare no tiene paso de compilación (framework *None*, salida `/`).
 
 ### 4. Correos
 
