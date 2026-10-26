@@ -793,7 +793,7 @@ function printHtml(html, kind) {
   // Rollo más angosto que la etiqueta (por ejemplo 62 mm continuo): la página va del ancho del rollo y la etiqueta se imprime girada
   var rot = kind !== "cert" && L.rollo && L.rollo < L.w;
   st.textContent = kind === "cert" ? "@page{size:A4 landscape;margin:0}" :
-    rot ? "@page{size:" + L.rollo + "mm " + L.w + "mm;margin:0} #printarea.plabel.rot{width:" + L.rollo + "mm;height:" + L.w + "mm} #printarea.plabel.rot .label{width:" + L.w + "mm!important;height:" + L.h + "mm!important;transform:translateX(" + L.rollo + "mm) rotate(90deg)}" :
+    rot ? "@page{margin:0} #printarea.plabel.rot{width:" + L.rollo + "mm;height:" + L.w + "mm} #printarea.plabel.rot .label{width:" + L.w + "mm!important;height:" + L.h + "mm!important;transform:translateX(" + L.rollo + "mm) rotate(90deg)}" :
     "@page{size:" + L.w + "mm " + L.h + "mm;margin:0}";
   $("printarea").className = kind === "cert" ? "pcert" : rot ? "plabel rot" : "plabel";
   $("printarea").innerHTML = html;
