@@ -138,6 +138,14 @@ function formHtml(e, pre, dis) {
   }).join("") + '<div class="field check"><input type="checkbox" id="' + pre + '-consent"' + a + '><label for="' + pre + '-consent">Acepto que Cubo Itaú use mis datos para gestionar mi participación en este evento. <span class="note">(obligatorio)</span></label></div>';
 }
 function labelInner(nombre, apellido, empresa, title) {
+  var LL = CFG.label || {}, lg = document.querySelector(".logo");
+  if (LL.h && LL.h < 40) {
+    // Etiqueta angosta (por ejemplo 90 x 29 mm): nombre y apellido en una línea
+    var full = (String(nombre || "") + " " + String(apellido || "")).trim(), fl = full.length;
+    var fs = fl <= 14 ? 30 : fl <= 18 ? 25 : fl <= 23 ? 21 : fl <= 28 ? 18 : 15;
+    return '<div class="label sm" style="aspect-ratio:' + LL.w + "/" + LL.h + '"><div class="lt">' + (lg ? lg.outerHTML : "<b>CUBO ITAÚ</b>") + "</div>" +
+      '<div class="n" style="font-size:' + fs + 'px">' + esc(full) + '</div><div class="c">' + esc(empresa) + '</div><div class="e">' + esc(title) + "</div></div>";
+  }
   var L = CFG.label || { w: 100, h: 62 }, logo = document.querySelector(".logo");
   // El nombre se achica solo si la palabra más larga no entra en el ancho de la etiqueta
   var longest = Math.max(String(nombre || "").length, String(apellido || "").length);
@@ -793,7 +801,7 @@ function printHtml(html, kind) {
   // Rollo más angosto que la etiqueta (por ejemplo 62 mm continuo): la página va del ancho del rollo y la etiqueta se imprime girada
   var rot = kind !== "cert" && L.rollo && L.rollo < L.w;
   st.textContent = kind === "cert" ? "@page{size:A4 landscape;margin:0}" :
-    rot ? "@page{margin:0} #printarea.plabel.rot{width:" + L.rollo + "mm;height:" + L.w + "mm} #printarea.plabel.rot .label{width:" + L.w + "mm!important;height:" + L.h + "mm!important;transform:translateX(" + L.rollo + "mm) rotate(90deg)}" :
+    rot ? "@page{size:" + L.rollo + "mm " + L.w + "mm;margin:0} #printarea.plabel.rot{width:" + L.rollo + "mm;height:" + L.w + "mm} #printarea.plabel.rot .label{width:" + L.w + "mm!important;height:" + L.h + "mm!important;transform:translateX(" + L.rollo + "mm) rotate(90deg)}" :
     "@page{size:" + L.w + "mm " + L.h + "mm;margin:0}";
   $("printarea").className = kind === "cert" ? "pcert" : rot ? "plabel rot" : "plabel";
   $("printarea").innerHTML = html;

@@ -231,3 +231,12 @@ body.kiosk .wrap{max-width:none;padding:0;gap:0}
 .kform .field.check label{font-size:16px}
 .kb{position:sticky;bottom:0;width:min(860px,100%);background:var(--bg);padding:10px 0 4px}
 @media (max-width:560px){.kcard{grid-template-columns:64px minmax(0,1fr)}.kcard .thumb{width:64px}.kgo{display:none}.kkey{height:56px;font-size:20px}}
+
+/* Etiqueta angosta (90 x 29 mm) */
+.label.sm{gap:1px;padding:6px 10px}
+.label.sm .lt{padding-bottom:1px;margin-bottom:0}
+.label.sm .lt .logo{height:8px}
+.label.sm .n{line-height:1.02;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em}
+.label.sm .c{font-size:12px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.label.sm .e{font-size:8.5px;border-top-width:1px;padding-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media print{#printarea.plabel .label.sm{padding:1.6mm 3mm}}
