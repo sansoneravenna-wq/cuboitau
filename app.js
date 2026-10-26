@@ -139,8 +139,13 @@ function formHtml(e, pre, dis) {
 }
 function labelInner(nombre, apellido, empresa, title) {
   var L = CFG.label || { w: 100, h: 62 }, logo = document.querySelector(".logo");
-  return '<div class="label" style="aspect-ratio:' + L.w + "/" + L.h + '"><div class="lt">' + (logo ? logo.outerHTML : "<b>CUBO ITAÚ</b>") + "<span>Acreditación</span></div>" +
-    '<div class="n">' + esc(nombre) + "<br>" + esc(apellido) + '</div><div class="c">' + esc(empresa) + '</div><div class="e">' + esc(title) + "</div></div>";
+  // El nombre se achica solo si la palabra más larga no entra en el ancho de la etiqueta
+  var longest = Math.max(String(nombre || "").length, String(apellido || "").length);
+  var nSize = longest <= 9 ? 46 : longest <= 12 ? 40 : longest <= 15 ? 34 : 28;
+  var cSize = String(empresa || "").length <= 24 ? 21 : 17;
+  var eSize = String(title || "").length <= 32 ? 15 : 12;
+  return '<div class="label" style="aspect-ratio:' + L.w + "/" + L.h + '"><div class="lt">' + (logo ? logo.outerHTML : "<b>CUBO ITAÚ</b>") + "</div>" +
+    '<div class="n" style="font-size:' + nSize + 'px">' + esc(nombre) + "<br>" + esc(apellido) + '</div><div class="c" style="font-size:' + cSize + 'px">' + esc(empresa) + '</div><div class="e" style="font-size:' + eSize + 'px">' + esc(title) + "</div></div>";
 }
 function labelHtml(r) {
   var e = evById(r.event_id) || { title: "" };
