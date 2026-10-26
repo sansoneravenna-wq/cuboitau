@@ -38,6 +38,22 @@ Para cambiar de evento o cerrar la sesión: **tocá el logo 5 veces seguidas**.
 2. En sus preferencias, elegí el tamaño de etiqueta que van a usar.
 3. El tamaño que pide el sitio se ajusta en `config.js` (`label`, en milímetros). Tiene que coincidir con el rollo.
 
+### Impresora Brother QL-800 (lo que funcionó)
+
+- **Etiquetas:** precortadas blancas de **29 × 90 mm** (tamaño `DC03` en el controlador). El diseño del sitio está hecho para esa medida (`config.js` → `label: { w: 90, h: 29, rollo: 29 }`).
+- **Modo de color: Monocromo.** En modo "negro y rojo" las etiquetas blancas salen con el fondo oscuro. Ese modo es solo para el rollo rojo y negro (DK-22251).
+- **Tamaño predeterminado: 29 × 90 mm.** Chrome, al imprimir directo, usa ese.
+- Si se cambia el tipo de etiqueta, hay que cambiar estas tres cosas juntas: el tamaño en `config.js`, el tamaño predeterminado y el modo de color de la impresora.
+
+En Mac, desde la Terminal:
+
+```
+sudo lpadmin -p Brother_QL_800 -o PageSize=DC03 -o BrMultiColor=BrMultiColorMonochrome
+open -na "Google Chrome" --args --kiosk-printing --user-data-dir="$HOME/cubo-totem" "https://cuboeventos.uy/#/totem"
+```
+
+Si un trabajo queda trancado, los siguientes esperan atrás: vaciá la cola (`cancel -a Brother_QL_800`) y apagá y prendé la impresora.
+
 ### Lector de QR
 
 - Se conecta por USB y funciona como un teclado: escribe el código y presiona Enter. No hace falta instalar nada.
