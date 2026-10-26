@@ -3,6 +3,8 @@
 window.CUBO_CONFIG = {
   supabaseUrl: "https://lltxogoaqamcpvlanlor.supabase.co",
   supabaseAnonKey: "sb_publishable_o1Zzbt-bTDlJ4SjPcheFfQ_xVz8ifFx",
-  // Tamaño de la etiqueta del gafete, en milímetros (ancho × alto). Brother DK-11202 = 62 × 100 mm
-  label: { w: 100, h: 62 }
+  // Etiqueta del gafete, en milímetros: w = largo, h = alto del diseño.
+  // rollo = ancho del rollo de la impresora. Si es menor que w, la etiqueta se imprime girada a lo largo del rollo.
+  // Rollo actual: Brother DK-22251, continuo de 62 mm.
+  label: { w: 100, h: 62, rollo: 62 }
 };
