@@ -1,5 +1,15 @@
 -- Datos de prueba · pegar en Supabase → SQL Editor → Run. Se puede correr más de una vez.
 -- No envía correos. Todas las personas de prueba tienen email @ejemplo.com (salvo una, para recibir el certificado).
+-- 4. Más QR para probar el tótem: 16 aprobados nuevos en Beyond the Hype (CI-DEMOB00001 a 16)
+insert into public.registrations (event_id, code, email, data, status, reviewed_by, reviewed_at)
+select e.id, 'CI-DEMOB' || lpad(g::text, 5, '0'), 'demo.b' || g || '@ejemplo.com',
+  jsonb_build_object('nombre', (array['Lucía','Martín','Sofía','Diego','Camila','Juan Pablo','Valeria','Federico','Agustina','Rodrigo','María José','Emiliano','Paula','Tomás','Carla','Ignacio'])[g], 'apellido', (array['Bentancor','Olivera','Larrañaga','Fernández','Etcheverry','Rodríguez','Méndez','Castro','Pintos','Silveira','Fernández Abella','Cardozo','Rivero','Alonso','Domínguez','Bentos'])[g], 'empresa', (array['Nodo Agro','Puerto Datos','Pampa Pagos','Grupo Andén','Estudio Prisma','Caja Sur','Tero Logística','Agencia Faro','Banda Oriental Media','Molino Ventures','Puerto Datos','Nodo Agro','Pampa Pagos','Grupo Andén','Estudio Prisma','Caja Sur'])[g],
+    'email', 'demo.b' || g || '@ejemplo.com', 'consent', true),
+  'aprobada', 'RedTickets', now()
+from public.events e, generate_series(1, 16) g
+where e.slug = 'beyond-the-hype'
+on conflict do nothing;
+
 -- Para borrarlos, ver el final del archivo.
 
 -- 1. Beyond the Hype: campo de celular para probar WhatsApp + 20 inscripciones (12 aprobadas, 4 pendientes, 4 rechazadas)
